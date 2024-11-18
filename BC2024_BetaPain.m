@@ -113,7 +113,7 @@ BetaPain_info(subject_idx).stimulation(2).intensity = BetaPain_info(subject_idx)
 
 % save and continue
 save(output_file, 'BetaPain_info','-append')
-clear session_info
+clear session_info output_vars
 
 %% load & pre-process EEG data
 % ----- section input -----
@@ -122,7 +122,7 @@ params.timepoint = {'baseline', 't1', 't2', 't3', 't4', 't5', 't6'};
 params.block = {'b1', 'b2'};
 params.suffix = {'ep' 'ds' 'dc'};
 params.eventcode = {'TMS'};
-params.epoch = [-2.505 -0.005];
+params.epoch = [-3.000 -0.005];
 params.downsample = 20;
 % ------------------------- 
 % cycle through sessions
@@ -146,7 +146,7 @@ for a = 1:length(params.condition)
     'Is any dataset missing (indicate number)?'], ...
     datanames{1},datanames{2},datanames{3},datanames{4},datanames{5},datanames{6},datanames{7}, ...
     datanames{8},datanames{9},datanames{10},datanames{11},datanames{12},datanames{13},datanames{14})};
-    dlgtitle = sprintf('subject %d - %s session:\n', subject_idx, params.condition{a});
+    dlgtitle = sprintf('subject %d - %s session: dataset', subject_idx, params.condition{a});
     dims = [1 40];
     definput = {''};
     input = inputdlg(prompt,dlgtitle,dims,definput);
@@ -190,6 +190,7 @@ for a = 1:length(params.condition)
     end
 
     % load datasets
+    dataset(a).condition = params.condition{a};
     fprintf('Loading:\n')
     for d = 1:length(data2import)
         % provide update
@@ -231,19 +232,145 @@ for a = 1:length(params.condition)
         option = struct('filepath', sprintf('%s\\letswave 7\\res\\electrodes\\spherical_locations\\Standard-10-20-Cap81.locs', folder.toolbox), ...
             'suffix', '', 'is_save', 0);
         lwdata = FLW_electrode_location_assign.get_lwdata(lwdata, option);
-        if a ==1 && d == 1
+        if a == 1 && d == 1
             BetaPain_info(subject_idx).EEG.processing(1).process = sprintf('electrode coordinates assigned');
             BetaPain_info(subject_idx).EEG.processing(end).params.layout = sprintf('standard 10-20-cap81');
             BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
         end
 
+        % identify eventcode
+        fprintf('checking events... ') 
+        if d == 1
+            params.eventcode_old = unique({lwdata.header.events.code});
+            prompt = 'Which eventcode corresponds to the TMS stimulus?';
+            definput = '';
+            for e = 1:length(params.eventcode_old)
+                if e == length(params.eventcode_old)
+                    definput = [definput params.eventcode_old{e}];
+                else
+                    definput = [definput params.eventcode_old{e} '\' ];
+                end
+            end
+            dlgtitle = sprintf('subject %d - %s session: eventcodes', subject_idx, params.condition{a});
+            dims = [1 40];
+            params.eventcode_old = inputdlg(prompt,dlgtitle,dims,{definput});
+            clear prompt dlgtitle dims definput 
+        else
+            if ~ismember(params.eventcode_old, unique({lwdata.header.events.code}))
+                params.eventcode_old1 = params.eventcode_old;
+                params.eventcode_old = unique({lwdata.header.events.code});
+                prompt = sprintf(['Eventcode ''%s'' was not found in this dataset.\n' ...
+                    'Which eventcode corresponds to the TMS stimulus?'], params.eventcode_old1{1});
+                definput = '';
+                for e = 1:length(params.eventcode_old)
+                    if e == length(params.eventcode_old)
+                        definput = [definput params.eventcode_old{e}];
+                    else
+                        definput = [definput params.eventcode_old{e} '\' ];
+                    end
+                end
+                dlgtitle = sprintf('%s', datanames{d});
+                dims = [1 40];
+                params.eventcode_old = inputdlg(prompt,dlgtitle,dims,{definput});
+                clear prompt dlgtitle dims definput 
+            end
+        end
+
         % re-label and filter events
-        fprintf('checking events... ')
         event_idx = logical([]);
-        for b = 1:length(lwdata.header.events)
+        for e = 1:length(lwdata.header.events)
+            if strcmp(lwdata.header.events(e).code, params.eventcode_old{1})
+                lwdata.header.events(e).code = params.eventcode{1};
+                event_idx(e) = false; 
+            else
+                event_idx(e) = true; 
+            end
         end
         lwdata.header.events(event_idx) = [];
 
+        % remove first stimulus if the latency corresponds
+        if lwdata.header.events(2).latency - lwdata.header.events(1).latency > 9.8
+            lwdata.header.events(1) = [];    
+        end
+        fprintf('%d TMS stimuli found.\n', length(lwdata.header.events))
+
+        % extract pre-stimulus epochs
+        fprintf('epoching ... ')
+        option = struct('event_labels', params.eventcode, 'x_start', params.epoch(1), 'x_end', params.epoch(2), ...
+            'x_duration', params.epoch(2)-params.epoch(1), 'suffix', params.suffix{1}, 'is_save', 0);
+        lwdata = FLW_segmentation.get_lwdata(lwdata, option);
+        if a ==1 && d == 1
+            BetaPain_info(subject_idx).EEG.processing(end+1).process = sprintf('segmented to pre-stimulus epochs');
+            BetaPain_info(subject_idx).EEG.processing(end).params.limits = params.epoch;            
+            BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
+            epoch_idx = length(BetaPain_info(subject_idx).EEG.processing);
+        end
+        BetaPain_info(subject_idx).EEG.processing(epoch_idx).params.epochs((a-1)*length(params.timepoint) + d) = size(lwdata.data, 1);
+
+        % downsample 
+        fprintf('downsampling... ')
+        option = struct('x_dsratio', params.downsample, 'suffix', params.suffix{2}, 'is_save', 0);
+        lwdata = FLW_downsample.get_lwdata(lwdata, option);
+        if a ==1 && d == 1
+            BetaPain_info(subject_idx).EEG.processing(end+1).process = sprintf('downsampled');
+            BetaPain_info(subject_idx).EEG.processing(end).params.ratio = params.downsample;
+            BetaPain_info(subject_idx).EEG.processing(end).params.fs_orig = 1/lwdata.header.xstep * params.downsample;
+            BetaPain_info(subject_idx).EEG.processing(end).params.fs_final = 1/lwdata.header.xstep;
+            BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
+        end
+
+        % remove DC + linear detrend
+        fprintf('removing DC and applying linear detrend.\n')
+        option = struct('linear_detrend', 1, 'suffix', params.suffix{3}, 'is_save', 0);
+        lwdata = FLW_dc_removal.get_lwdata(lwdata, option);
+        if a ==1 && d == 1
+            BetaPain_info(subject_idx).EEG.processing(end+1).process = sprintf('DC + linear detrend on ERP epochs');
+            BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
+        end
+
+        % update dataset
+        dataset(a).raw(d).header = lwdata.header;
+        dataset(a).raw(d).data = lwdata.data; 
+    end
+    fprintf('Done.\n')
+    fprintf('\n')
+
+    % concatenate timepoints and save for letswave
+    fprintf('concatenating blocks and saving... ') 
+    for b = 1:length(params.timepoint)
+        % identify blocks, check their number
+        concat_idx = [];
+        for d = 1:length(dataset(a).raw)
+            if contains(dataset(a).raw(d).header.name, params.timepoint{b}) 
+                concat_idx(end + 1) = d;
+            end
+        end
+        if length(concat_idx) > 2
+        elseif length(concat_idx) == 1
+            fprintf('ATTENTION: Only 1 block was found for the %s dataset.\n', params.timepoint{b})
+        elseif length(concat_idx) == 0
+            fprintf('ATTENTION: No %s dataset was found!\n', params.timepoint{b})
+            continue
+        end
+
+        % merge epochs of all identified datasets
+        header = dataset(a).raw(concat_idx(1)).header;
+        data = dataset(a).raw(concat_idx(1)).data;
+        header.name = header.name(1:end-3); 
+        if length(concat_idx) == 2
+            for e = 1:size(dataset(a).raw(concat_idx(2)).data, 1)
+                data(end+1, :, :, :, :, :) = dataset(a).raw(concat_idx(2)).data(e, :, :, :, :, :);
+            end
+        end
+        header.datasize = size(data);
+
+        % save for letswave
+        save([header.name '.lw6'], 'header')
+        save([header.name '.mat'], 'data')
+
+        % update dataset
+        dataset(a).processed(b).header = header;
+        dataset(a).processed(b).data = data;
     end
     fprintf('Done.\n')
     fprintf('\n')
@@ -251,11 +378,15 @@ end
 
 % save and continue
 save(output_file, 'BetaPain_info','-append')
-clear params a b c d data2import data_idx file_idx filename datanames lwdata event_idx
+clear params a b c d e data2import data_idx file_idx filename datanames option lwdata event_idx epoch_idx concat_idx data header
 
 %% final pre-processing of EEG data
 % ----- section input -----
 params.condition = {'pain', 'control'};
 params.timepoint = {'baseline', 't1', 't2', 't3', 't4', 't5', 't6'};
-params.block = {'b1', 'b2'};
+params.suffix = {'bandpass'};
 % ------------------------- 
+% cycle through sessions
+for a = 1:length(params.condition)
+    % concatenate signals for filtering
+end
