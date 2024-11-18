@@ -23,24 +23,32 @@
 %           but this stidy will only consider MEPs to evaluate pain-induced 
 %           inhibition of cortico-motor excitability. 
 % 
-% data:     1) raw EEG recordings 
+% data:     - raw EEG recordings 
 %               --> 7 blocks, each split in two continuous EEG recordings
 %               --> for extraction of pre-stimulus 'resting state' EEG
-%           2) MEPs
+%           - MEPs
 %               --> already pre-processed, saved in 
-%           3) pain ratings
+%           - pain ratings
 %               --> already pre-processed, saved in 
-%           4) subject information
+%          - subject information
 % 
-% script:
-% output:
+% script:   - subject and session info encoded to the output structure
+%           - raw EEG data imported and pre-processed
+%               - channels linked to electrode coordinates 
+%               - signal segmented to 2.5s chunks pre-stimulus
+%               - downsampled to 1000Hz SR 
+%               - DC + linear detrend
+%               - datasets saved in letswave format 
+%           
+% output:   1) BetaPain_info 
 
 %% parameters
 % directories
 folder.toolbox = uigetdir(pwd, 'Choose the toolbox folder');    % MATLAB toolboxes
-folder.raw = uigetdir(pwd, 'Coose the input folder');           % raw data --> at MSH, this should be the study folder at the V drive
-folder.output = uigetdir(pwd, 'Choose the OneDrive folder');    % output folder --> One Drive: figures, loutput file, exports 
-cd(folder.output)
+folder.raw = uigetdir(pwd, 'Coose the input folder');           % raw data --> this should be the folder 'BetaPain' at the external harddrive 'PHYSIOLOGIE'
+folder.processed = uigetdir(pwd, 'Coose the data folder');      % processed data --> local folder 
+folder.output = uigetdir(pwd, 'Choose the output folder');      % output folder --> local folder with figures, output files, export files
+cd(folder.processed)
 
 % output
 study = 'BetaPain';
@@ -107,39 +115,44 @@ BetaPain_info(subject_idx).stimulation(2).intensity = BetaPain_info(subject_idx)
 save(output_file, 'BetaPain_info','-append')
 clear session_info
 
-%% load EEG data
+%% load & pre-process EEG data
 % ----- section input -----
 params.condition = {'pain', 'control'};
 params.timepoint = {'baseline', 't1', 't2', 't3', 't4', 't5', 't6'};
 params.block = {'b1', 'b2'};
+params.suffix = {'ep' 'ds' 'dc'};
+params.eventcode = {'TMS'};
+params.epoch = [-2.505 -0.005];
+params.downsample = 20;
 % ------------------------- 
-% define datanames
-datanames = [];
+% cycle through sessions
 for a = 1:length(params.condition)
+    % add letswave 6 to the top of search path
+    addpath(genpath([folder.toolbox '\letswave 6']));
+
+    % provide update
+    fprintf('subject %d - %s session:\n', subject_idx, params.condition{a})
+
+    % confirm expected datasets
+    datanames = [];
     for b = 1:length(params.timepoint)
         for c = 1:length(params.block)
             datanames{end + 1} = sprintf('%s %s %s %s %s', study, BetaPain_info(subject_idx).ID, params.condition{a}, params.timepoint{b}, params.block{c});
         end
     end
-end
-
-% cycle through sessions
-for a = 1:length(params.condition)
-    % provide update
-    fprintf('subject %d - %s session:\n', subject_idx, params.condition{a})
-
-    % confirm expected datasets
-    datanames_a = datanames((a-1)*length(params.timepoint) + [1:14]);
     prompt = {sprintf(['These are expected datasets:\n' ...
     '1 - %s\n2 - %s\n3 - %s\n4 - %s\n5 - %s\n6 - %s\n7 - %s\n' ...
     '8 - %s\n9 - %s\n10 - %s\n11 - %s\n12 - %s\n13 - %s\n14 - %s\n' ...
     'Is any dataset missing (indicate number)?'], ...
-    datanames_a{1},datanames_a{2},datanames_a{3},datanames_a{4},datanames_a{5},datanames_a{6},datanames_a{7}, ...
-    datanames_a{8},datanames_a{9},datanames_a{10},datanames_a{11},datanames_a{12},datanames_a{13},datanames_a{14})};
-    dlgtitle = sprintf();
+    datanames{1},datanames{2},datanames{3},datanames{4},datanames{5},datanames{6},datanames{7}, ...
+    datanames{8},datanames{9},datanames{10},datanames{11},datanames{12},datanames{13},datanames{14})};
+    dlgtitle = sprintf('subject %d - %s session:\n', subject_idx, params.condition{a});
     dims = [1 40];
     definput = {''};
     input = inputdlg(prompt,dlgtitle,dims,definput);
+    if ~isempty(input{1})
+        datanames(str2num(input{1})) = [];
+    end
     clear prompt dlgtitle dims definput input
 
     % identify import folder 
@@ -147,47 +160,102 @@ for a = 1:length(params.condition)
         if strcmp(BetaPain_info(subject_idx).session(b).condition, params.condition{a})
             params.folder = sprintf('%s\\%s\\%s', folder.raw, BetaPain_info(subject_idx).ID, ...
                 BetaPain_info(subject_idx).session(b).date);
+            params.date = BetaPain_info(subject_idx).session(b).date;
         end
     end
 
     % check avaiable datasets
     data2import = dir(params.folder);
-    data_idx = logical([]);
-    for c = 1:length(data2import)
-        if isempty(str2num(data2import(c).name))
-            data_idx(c) = true;
-        else
-            data2import(c).block = str2num(data2import(c).name);
-            data_idx(c) = false;
+    if ~isempty(data2import)
+        data_idx = logical([]);
+        for c = 1:length(data2import)
+            if isempty(str2num(data2import(c).name))
+                data_idx(c) = true;
+            else
+                data2import(c).block = str2num(data2import(c).name);
+                data_idx(c) = false;
+            end
         end
+        data2import(data_idx) = [];
+        [~, file_idx] = sort([data2import.block]);
+        data2import = data2import(file_idx);
+        fprintf('%d datasets found in the directory.\n', length(data2import))
+    else
+        error('ERROR: No datasets found in the directory.\n')
     end
-    data2import(data_idx) = [];
-    [~, file_idx] = sort([data2import.block]);
-    data2import = data2import(file_idx);
-    fprintf('%d datasets found in the directory. Loading:\n', length(data2import))
+
+    % check number of datasets
+    if length(data2import) ~= length(datanames)
+        error('ERROR: This does not correspond to the expected number of datasets (%d)!', length(datanames))
+    end
 
     % load datasets
+    fprintf('Loading:\n')
     for d = 1:length(data2import)
-        % identify names
-        filename = sprintf('%s\\%s', data2import(d).folder, data2import(d).name);
-        dataname = datanames{};
-
         % provide update
-        fprintf('%s ...\n', dataname)
+        fprintf('%s:', datanames{d})
         
-        % encode the filename to metadata
-        block = regexp(file2import(c).name, 'b(\d+)', 'tokens');
-        block = str2num(block{1}{1});
-        RFSxLASER_info(subject_idx).dataset(block - 1).block = block;
-        RFSxLASER_info(subject_idx).dataset(block - 1).name = file2import(c).name;
+        % encode to the info structure
+        if a == 1 && d == 1
+            BetaPain_info(subject_idx).EEG.dataset(1).session = params.condition{a};
+        else
+            BetaPain_info(subject_idx).EEG.dataset(end + 1).session = params.condition{a};
+        end
+        BetaPain_info(subject_idx).EEG.dataset(end).date = params.date;
+        BetaPain_info(subject_idx).EEG.dataset(end).block = data2import(d).block;
+        BetaPain_info(subject_idx).EEG.dataset(end).name = datanames{d};
     
         % import the dataset
-        [dataset(subject_idx).raw(block - 1).header, dataset(subject_idx).raw(block - 1).data, ~] = RLW_import_VHDR(filename);
-    
+        [dataset(a).raw(d).header, dataset(a).raw(d).data, ~] = RLW_import_MEGA(data2import(d).folder, data2import(d).block);
+
         % rename in the header
-        dataset(subject_idx).raw(block - 1).header.name = dataname;
+        dataset(a).raw(d).header.name = datanames{d};
+    end  
+    fprintf('\n')
+
+    % add letswave 7 to the top of search path
+    addpath(genpath([folder.toolbox '\letswave 7']));
+
+    % pre-process and save datasets
+    fprintf('Pre-processing:\n')
+    for d = 1:length(dataset(a).raw)
+        % provide update
+        fprintf('%s:\n', datanames{d})
+
+        % select data
+        lwdata.header = dataset(a).raw(d).header;
+        lwdata.data = dataset(a).raw(d).data; 
+
+        % assign electrode coordinates
+        fprintf('assigning electrode coordinates... ')
+        option = struct('filepath', sprintf('%s\\letswave 7\\res\\electrodes\\spherical_locations\\Standard-10-20-Cap81.locs', folder.toolbox), ...
+            'suffix', '', 'is_save', 0);
+        lwdata = FLW_electrode_location_assign.get_lwdata(lwdata, option);
+        if a ==1 && d == 1
+            BetaPain_info(subject_idx).EEG.processing(1).process = sprintf('electrode coordinates assigned');
+            BetaPain_info(subject_idx).EEG.processing(end).params.layout = sprintf('standard 10-20-cap81');
+            BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
+        end
+
+        % re-label and filter events
+        fprintf('checking events... ')
+        event_idx = logical([]);
+        for b = 1:length(lwdata.header.events)
+        end
+        lwdata.header.events(event_idx) = [];
+
     end
-   
+    fprintf('Done.\n')
+    fprintf('\n')
 end
 
-clear params a b c d data2import data_idx file_idx filename dataname
+% save and continue
+save(output_file, 'BetaPain_info','-append')
+clear params a b c d data2import data_idx file_idx filename datanames lwdata event_idx
+
+%% final pre-processing of EEG data
+% ----- section input -----
+params.condition = {'pain', 'control'};
+params.timepoint = {'baseline', 't1', 't2', 't3', 't4', 't5', 't6'};
+params.block = {'b1', 'b2'};
+% ------------------------- 
