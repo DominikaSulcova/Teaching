@@ -383,13 +383,35 @@ end
 save(output_file, 'BetaPain_info','-append')
 clear params a b c d e data2import data_idx file_idx filename datanames option lwdata event_idx epoch_idx concat_idx data header
 
-%% final pre-processing of EEG data
+%% visual examination
 % ----- section input -----
 params.condition = {'pain', 'control'};
 params.timepoint = {'baseline', 't1', 't2', 't3', 't4', 't5', 't6'};
-params.prefix = 'dc ds ep';
-params.suffix = {'bandpass'};
 % ------------------------- 
+% remove mastoids
+% broad bandpass
+% save and open letswave
+% encode bad channels
+
+
+%% extraction of sensorimotor beta oscillations
+% ----- section input -----
+params.condition = {'pain', 'control'};
+params.timepoint = {'baseline', 't1', 't2', 't3', 't4', 't5', 't6'};
+% ------------------------- 
+% remove bad channels
+% re-reference to common average
+% filter at beta frequency 15 - 30Hz?
+% separately for each condition:    - ICA 25 channels
+%                                   - select non-artifactual components
+%                                     over stimulated hemisphere
+%                                   - encode selected components
+% extract beta amplitude and PBL:   - frequency decomposition of retained
+%                                     signal at each electrode/trial                                  
+%                                   - average across electrodes/trials
+%                                   - remove aperiodic component
+%                                   - calculate peak amplitude and latency                                 
+
 % update output 
 load(output_file, 'BetaPain_info')
 
