@@ -39,8 +39,11 @@
 %               - downsampled to 1000Hz SR 
 %               - DC + linear detrend
 %               - datasets saved in letswave format 
+%           - 
 %           
 % output:   1) BetaPain_info 
+%           2) BetaPain_measures
+%           3) BetaPain_data
 
 %% parameters
 % directories
@@ -384,9 +387,93 @@ clear params a b c d e data2import data_idx file_idx filename datanames option l
 % ----- section input -----
 params.condition = {'pain', 'control'};
 params.timepoint = {'baseline', 't1', 't2', 't3', 't4', 't5', 't6'};
+params.prefix = 'dc ds ep';
 params.suffix = {'bandpass'};
 % ------------------------- 
+% update output 
+load(output_file, 'BetaPain_info')
+
+% check for pre-processed data
+data2load = dir(sprintf('%s*%s*', params.prefix, BetaPain_info(subject_idx).ID));
+if length(data2load) == length(params.condition) * length(params.timepoint) * 2
+    dataset = reload_dataset(data2load, params.condition, 'processed');
+else
+    error(sprintf('ERROR: Wrong number of datasets (%d) found in the directory!', length(data2load)/2))
+end
+
 % cycle through sessions
 for a = 1:length(params.condition)
-    % concatenate signals for filtering
+    % add letswave 7 to the top of search path
+    addpath(genpath([folder.toolbox '\letswave 7']));
+
+    % bandpass filter 
+    % remove mastoids
+    % plot for bad channel check
+    % re-reference to common average?
+    % ICA
+end
+
+% save and continue
+save(output_file, 'BetaPain_info','-append')
+clear params data2load a
+
+%% functions
+function dataset = reload_dataset(data2load, conditions, fieldname)
+% =========================================================================
+% Reloads pre-processed EEG data of a single subject for following 
+% processing steps. 
+% Input:    - list of datasets to load
+%           - cell array with conditions
+%           - fieldname
+% =========================================================================  
+% initiate output
+dataset = struct;
+
+% load all data
+dpc = length(data2load)/2/length(conditions);
+if mod(dpc, 1) == 0
+    for c = 1:length(conditions)
+        % note condition
+        dataset(c).condition = conditions{c}; 
+
+        % subset header and data files
+        header_idx = logical([]);
+        data_idx = logical([]);
+        for d = 1:length(data2load)
+            if contains(data2load(d).name, conditions{c}) 
+                if contains(data2load(d).name, 'lw6') 
+                    header_idx(d) = true;
+                    data_idx(d) = false;
+                elseif contains(data2load(d).name, 'mat') 
+                    header_idx(d) = false;
+                    data_idx(d) = true;
+                end
+            else
+                header_idx(d) = false;
+                data_idx(d) = false;
+            end
+        end
+        headers = data2load(header_idx);
+        datas = data2load(data_idx);
+
+        % load all dataset for this condition
+        if length(datas) == length(headers) && length(datas) == dpc
+            for d = 1:dpc
+                % load header
+                load(sprintf('%s\\%s', headers(d).folder, headers(d).name), '-mat')
+                statement = sprintf('dataset(c).%s(d).header = header;', fieldname);
+                eval(statement) 
+    
+                % load data
+                load(sprintf('%s\\%s', datas(d).folder, datas(d).name))
+                statement = sprintf('dataset(c).%s(d).data = data;', fieldname);
+                eval(statement) 
+            end
+        else
+            error('ERROR: Wrong number of available datasets to load! Check manually.')
+        end
+    end
+else
+    error('ERROR: Wrong number of available datasets to load! Check manually.')
+end
 end
