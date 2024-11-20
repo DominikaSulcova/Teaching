@@ -383,22 +383,90 @@ end
 save(output_file, 'BetaPain_info','-append')
 clear params a b c d e data2import data_idx file_idx filename datanames option lwdata event_idx epoch_idx concat_idx data header
 
-%% visual examination
+%% visual inspection
 % ----- section input -----
 params.condition = {'pain', 'control'};
 params.timepoint = {'baseline', 't1', 't2', 't3', 't4', 't5', 't6'};
+params.prefix = 'dc ds ep';
+params.suffix = {'no_mastoid' 'bandpass_broad' 'visual'};
+params.bandpass = [1, 45];
 % ------------------------- 
-% remove mastoids
-% broad bandpass
-% save and open letswave
-% encode bad channels
+% update output 
+load(output_file, 'BetaPain_info')
 
+% check for pre-processed data
+if exist('dataset') ~= 1
+    data2load = dir(sprintf('%s*%s*', params.prefix, BetaPain_info(subject_idx).ID));
+    if length(data2load) == length(params.condition) * length(params.timepoint) * 2
+        dataset = reload_dataset(data2load, params.condition, 'processed');
+    else
+        error(sprintf('ERROR: Wrong number of datasets (%d) found in the directory!', length(data2load)/2))
+    end
+end
+
+% add letswave 7 to the top of search path
+addpath(genpath([folder.toolbox '\letswave 7']));
+
+% prepare for viewing
+fprintf('exporting for visualization: ')
+for a = 1:length(dataset)
+    for b = 1:length(dataset(a).processed)
+        % select dataset
+        lwdata.header = dataset(a).processed(b).header;
+        lwdata.data = dataset(a).processed(b).data;
+
+        % remove mastoids
+        channel_all = {lwdata.header.chanlocs.labels};
+        channel_mask = cellfun(@(x) strcmp(x, 'M1') || strcmp(x, 'M2'), channel_all);
+        params.channels2keep = channel_all(~channel_mask);
+        option = struct('type', 'channel', 'items', {params.channels2keep}, 'suffix', params.suffix{1}, 'is_save', 0);
+        lwdata = FLW_selection.get_lwdata(lwdata, option);
+        if a == 1 && b == 1
+            BetaPain_info(subject_idx).EEG.processing(end + 1).process = 'mastoid channels removed';
+            BetaPain_info(subject_idx).EEG.processing(end).params.channels_kept = params.channels2keep;
+            BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
+        end
+
+        % update dataset
+        dataset(a).processed(b).header = lwdata.header;
+        dataset(a).processed(b).data = lwdata.data;
+
+        % broad bandpass
+        option = struct('filter_type', 'bandpass', 'high_cutoff', params.bandpass(2), 'low_cutoff', params.bandpass(1), ... 
+            'filter_order', 4, 'suffix', params.suffix{2}, 'is_save', 0);
+        lwdata = FLW_butterworth_filter.get_lwdata(lwdata, option);
+        if a == 1 && b == 1
+            BetaPain_info(subject_idx).EEG.processing(end + 1).process = 'bandpass filtered for visualization';
+            BetaPain_info(subject_idx).EEG.processing(end).params.method = 'Butterworth';
+            BetaPain_info(subject_idx).EEG.processing(end).params.order = 4;
+            BetaPain_info(subject_idx).EEG.processing(end).params.limits = params.bandpass;
+            BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
+        end
+
+        % save for letswave
+        filename = sprintf('%s %s %s %s', params.suffix{3}, BetaPain_info(subject_idx).ID, params.condition{a}, params.timepoint{b});
+        header = lwdata.header;
+        data = lwdata.data;
+        save([filename '.lw6'], 'header')        
+        save([filename '.mat'], 'data')
+        fprintf('. ')
+    end
+end
+fprintf('done.\n\n')
+
+% save and continue
+save(output_file, 'BetaPain_info','-append')
+clear params a b data2load lwdata option channel_all channel_mask filename
+
+% open letswave for visual inspection
+letswave
 
 %% extraction of sensorimotor beta oscillations
 % ----- section input -----
 params.condition = {'pain', 'control'};
 params.timepoint = {'baseline', 't1', 't2', 't3', 't4', 't5', 't6'};
 % ------------------------- 
+% encode bad channels
 % remove bad channels
 % re-reference to common average
 % filter at beta frequency 15 - 30Hz?
