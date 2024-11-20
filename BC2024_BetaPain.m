@@ -394,7 +394,10 @@ params.bandpass = [1, 45];
 % update output 
 load(output_file, 'BetaPain_info')
 
-% check for pre-processed data
+% add letswave 7 to the top of search path
+addpath(genpath([folder.toolbox '\letswave 7']));
+
+% load dataset if needed
 if exist('dataset') ~= 1
     data2load = dir(sprintf('%s*%s*', params.prefix, BetaPain_info(subject_idx).ID));
     if length(data2load) == length(params.condition) * length(params.timepoint) * 2
@@ -403,9 +406,6 @@ if exist('dataset') ~= 1
         error(sprintf('ERROR: Wrong number of datasets (%d) found in the directory!', length(data2load)/2))
     end
 end
-
-% add letswave 7 to the top of search path
-addpath(genpath([folder.toolbox '\letswave 7']));
 
 % prepare for viewing
 fprintf('exporting for visualization: ')
@@ -465,6 +465,8 @@ letswave
 % ----- section input -----
 params.condition = {'pain', 'control'};
 params.timepoint = {'baseline', 't1', 't2', 't3', 't4', 't5', 't6'};
+params.prefix = 'dc ds ep';
+params.suffix = {'no_mastoid' 'bandpass_beta'};
 % ------------------------- 
 % encode bad channels
 % remove bad channels
@@ -483,24 +485,57 @@ params.timepoint = {'baseline', 't1', 't2', 't3', 't4', 't5', 't6'};
 % update output 
 load(output_file, 'BetaPain_info')
 
-% check for pre-processed data
-data2load = dir(sprintf('%s*%s*', params.prefix, BetaPain_info(subject_idx).ID));
-if length(data2load) == length(params.condition) * length(params.timepoint) * 2
-    dataset = reload_dataset(data2load, params.condition, 'processed');
-else
-    error(sprintf('ERROR: Wrong number of datasets (%d) found in the directory!', length(data2load)/2))
+% add letswave 7 to the top of search path
+addpath(genpath([folder.toolbox '\letswave 7']));
+
+% load dataset if needed
+if exist('dataset') ~= 1
+    data2load = dir(sprintf('%s*%s*', params.prefix, BetaPain_info(subject_idx).ID));
+    if length(data2load) == length(params.condition) * length(params.timepoint) * 2
+        % load the data
+        dataset = reload_dataset(data2load, params.condition, 'processed');
+    else
+        error(sprintf('ERROR: Wrong number of datasets (%d) found in the directory!', length(data2load)/2))
+    end
 end
 
-% cycle through sessions
-for a = 1:length(params.condition)
-    % add letswave 7 to the top of search path
-    addpath(genpath([folder.toolbox '\letswave 7']));
 
-    % bandpass filter 
-    % remove mastoids
-    % plot for bad channel check
-    % re-reference to common average?
-    % ICA
+% pre-process
+fprintf('exporting for visualization: ')
+for a = 1:length(dataset)
+    for b = 1:length(dataset(a).processed)
+        % select dataset
+        lwdata.header = dataset(a).processed(b).header;
+        lwdata.data = dataset(a).processed(b).data;
+
+        % remove mastoids
+        channel_all = {lwdata.header.chanlocs.labels};
+        channel_mask = cellfun(@(x) strcmp(x, 'M1') || strcmp(x, 'M2'), channel_all);
+        params.channels2keep = channel_all(~channel_mask);
+        option = struct('type', 'channel', 'items', {params.channels2keep}, 'suffix', params.suffix{1}, 'is_save', 0);
+        lwdata = FLW_selection.get_lwdata(lwdata, option);
+        if a == 1 && b == 1
+            BetaPain_info(subject_idx).EEG.processing(end + 1).process = 'mastoid channels removed';
+            BetaPain_info(subject_idx).EEG.processing(end).params.channels_kept = params.channels2keep;
+            BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
+        end
+
+        % update dataset
+        dataset(a).processed(b).header = lwdata.header;
+        dataset(a).processed(b).data = lwdata.data;
+
+        % broad bandpass
+        option = struct('filter_type', 'bandpass', 'high_cutoff', params.bandpass(2), 'low_cutoff', params.bandpass(1), ... 
+            'filter_order', 4, 'suffix', params.suffix{2}, 'is_save', 0);
+        lwdata = FLW_butterworth_filter.get_lwdata(lwdata, option);
+        if a == 1 && b == 1
+            BetaPain_info(subject_idx).EEG.processing(end + 1).process = 'bandpass filtered for visualization';
+            BetaPain_info(subject_idx).EEG.processing(end).params.method = 'Butterworth';
+            BetaPain_info(subject_idx).EEG.processing(end).params.order = 4;
+            BetaPain_info(subject_idx).EEG.processing(end).params.limits = params.bandpass;
+            BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
+        end
+    end
 end
 
 % save and continue
