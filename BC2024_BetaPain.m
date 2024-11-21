@@ -45,7 +45,7 @@
 %           2) BetaPain_measures
 %           3) BetaPain_data
 
-%% parameters
+%% parameters - ALWAYS RUN AT THE BEGINNING OF THE SESSION
 % directories
 folder.toolbox = uigetdir(pwd, 'Choose the toolbox folder');    % MATLAB toolboxes
 folder.raw = uigetdir(pwd, 'Coose the input folder');           % raw data --> this should be the folder 'BetaPain' at the external harddrive 'PHYSIOLOGIE'
@@ -304,7 +304,8 @@ for a = 1:length(params.condition)
         lwdata = FLW_segmentation.get_lwdata(lwdata, option);
         if a ==1 && d == 1
             BetaPain_info(subject_idx).EEG.processing(end+1).process = sprintf('segmented to pre-stimulus epochs');
-            BetaPain_info(subject_idx).EEG.processing(end).params.limits = params.epoch;            
+            BetaPain_info(subject_idx).EEG.processing(end).params.limits = params.epoch;
+            BetaPain_info(subject_idx).EEG.processing(end).suffix = params.suffix{1};
             BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
             epoch_idx = length(BetaPain_info(subject_idx).EEG.processing);
         end
@@ -319,6 +320,7 @@ for a = 1:length(params.condition)
             BetaPain_info(subject_idx).EEG.processing(end).params.ratio = params.downsample;
             BetaPain_info(subject_idx).EEG.processing(end).params.fs_orig = 1/lwdata.header.xstep * params.downsample;
             BetaPain_info(subject_idx).EEG.processing(end).params.fs_final = 1/lwdata.header.xstep;
+            BetaPain_info(subject_idx).EEG.processing(end).suffix = params.suffix{2};
             BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
         end
 
@@ -328,6 +330,7 @@ for a = 1:length(params.condition)
         lwdata = FLW_dc_removal.get_lwdata(lwdata, option);
         if a ==1 && d == 1
             BetaPain_info(subject_idx).EEG.processing(end+1).process = sprintf('DC + linear detrend on ERP epochs');
+            BetaPain_info(subject_idx).EEG.processing(end).suffix = params.suffix{3};
             BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
         end
 
@@ -335,8 +338,7 @@ for a = 1:length(params.condition)
         dataset(a).raw(d).header = lwdata.header;
         dataset(a).raw(d).data = lwdata.data; 
     end
-    fprintf('Done.\n')
-    fprintf('\n')
+    fprintf('Done.\n\n')
 
     % concatenate timepoints and save for letswave
     fprintf('concatenating blocks and saving... ') 
@@ -424,6 +426,7 @@ for a = 1:length(dataset)
         if a == 1 && b == 1
             BetaPain_info(subject_idx).EEG.processing(end + 1).process = 'mastoid channels removed';
             BetaPain_info(subject_idx).EEG.processing(end).params.channels_kept = params.channels2keep;
+            BetaPain_info(subject_idx).EEG.processing(end).suffix = params.suffix{1};
             BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
         end
 
@@ -435,13 +438,6 @@ for a = 1:length(dataset)
         option = struct('filter_type', 'bandpass', 'high_cutoff', params.bandpass(2), 'low_cutoff', params.bandpass(1), ... 
             'filter_order', 4, 'suffix', params.suffix{2}, 'is_save', 0);
         lwdata = FLW_butterworth_filter.get_lwdata(lwdata, option);
-        if a == 1 && b == 1
-            BetaPain_info(subject_idx).EEG.processing(end + 1).process = 'bandpass filtered for visualization';
-            BetaPain_info(subject_idx).EEG.processing(end).params.method = 'Butterworth';
-            BetaPain_info(subject_idx).EEG.processing(end).params.order = 4;
-            BetaPain_info(subject_idx).EEG.processing(end).params.limits = params.bandpass;
-            BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
-        end
 
         % save for letswave
         filename = sprintf('%s %s %s %s', params.suffix{3}, BetaPain_info(subject_idx).ID, params.condition{a}, params.timepoint{b});
@@ -461,26 +457,16 @@ clear params a b data2load lwdata option channel_all channel_mask filename
 % open letswave for visual inspection
 letswave
 
-%% extraction of sensorimotor beta oscillations
+%% compute ICA at beta frequency
 % ----- section input -----
 params.condition = {'pain', 'control'};
 params.timepoint = {'baseline', 't1', 't2', 't3', 't4', 't5', 't6'};
 params.prefix = 'dc ds ep';
-params.suffix = {'no_mastoid' 'bandpass_beta'};
+params.suffix = {'no_mastoid' 'reref' 'bandpass_beta' 'ica'};
 params.interp_chans = 4;
-% ------------------------- 
-% re-reference to common average
-% filter at beta frequency 15 - 30Hz?
-% separately for each condition:    - ICA 25 channels
-%                                   - select non-artifactual components
-%                                     over stimulated hemisphere
-%                                   - encode selected components
-% extract beta amplitude and PBL:   - frequency decomposition of retained
-%                                     signal at each electrode/trial                                  
-%                                   - average across electrodes/trials
-%                                   - remove aperiodic component
-%                                   - calculate peak amplitude and latency                                 
-
+params.bandpass = [13 30];
+params.ICA_comp = 25;
+% -------------------------                             
 % update output 
 load(output_file, 'BetaPain_info')
 
@@ -524,6 +510,7 @@ if exist('dataset') ~= 1
         if encode
             BetaPain_info(subject_idx).EEG.processing(end + 1).process = 'mastoid channels removed';
             BetaPain_info(subject_idx).EEG.processing(end).params.channels_kept = params.channels2keep;
+            BetaPain_info(subject_idx).EEG.processing(end).suffix = params.suffix{1};
             BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
         end
     else
@@ -599,47 +586,165 @@ for a = 1:length(answer)
 end
 clear prompt dlgtitle dims definput answer
 
-% pre-process
-fprintf(': ')
+% compute ICA matrix and save for letswave
 for a = 1:length(dataset)
+    fprintf('%s session:\n', params.condition{a})
+
+    % pre-process all datasets
+    fprintf('pre-processing: dataset ', params.condition{a})
     for b = 1:length(dataset(a).processed)
+        fprintf('%s - ', params.timepoint{b})
+
         % select dataset
         lwdata.header = dataset(a).processed(b).header;
         lwdata.data = dataset(a).processed(b).data;
 
-        % remove mastoids
-        channel_all = {lwdata.header.chanlocs.labels};
-        channel_mask = cellfun(@(x) strcmp(x, 'M1') || strcmp(x, 'M2'), channel_all);
-        params.channels2keep = channel_all(~channel_mask);
-        option = struct('type', 'channel', 'items', {params.channels2keep}, 'suffix', params.suffix{1}, 'is_save', 0);
-        lwdata = FLW_selection.get_lwdata(lwdata, option);
+        % re-reference to common average
+        option = struct('reference_list', {params.labels}, 'apply_list', {params.labels}, 'suffix', params.suffix{2}, 'is_save', 0);
+        lwdata = FLW_rereference.get_lwdata(lwdata, option);
         if a == 1 && b == 1
-            BetaPain_info(subject_idx).EEG.processing(end + 1).process = 'mastoid channels removed';
-            BetaPain_info(subject_idx).EEG.processing(end).params.channels_kept = params.channels2keep;
+            BetaPain_info(subject_idx).EEG.processing(end+1).process = sprintf('re-referenced to common average');
+            BetaPain_info(subject_idx).EEG.processing(end).suffix = params.suffix{2};
+            BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
+        end
+
+        % beta bandpass
+        option = struct('filter_type', 'bandpass', 'high_cutoff', params.bandpass(2), 'low_cutoff', params.bandpass(1), ... 
+            'filter_order', 4, 'suffix', params.suffix{3}, 'is_save', 0);
+        lwdata = FLW_butterworth_filter.get_lwdata(lwdata, option);
+        if a == 1 && b == 1
+            BetaPain_info(subject_idx).EEG.processing(end + 1).process = 'bandpass filtered at beta frequency';
+            BetaPain_info(subject_idx).EEG.processing(end).params.method = 'Butterworth';
+            BetaPain_info(subject_idx).EEG.processing(end).params.order = 4;
+            BetaPain_info(subject_idx).EEG.processing(end).params.limits = params.bandpass;
+            BetaPain_info(subject_idx).EEG.processing(end).suffix = params.suffix{3};
             BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
         end
 
         % update dataset
         dataset(a).processed(b).header = lwdata.header;
         dataset(a).processed(b).data = lwdata.data;
+    end
+    fprintf('done.\n')
 
-        % broad bandpass
-        option = struct('filter_type', 'bandpass', 'high_cutoff', params.bandpass(2), 'low_cutoff', params.bandpass(1), ... 
-            'filter_order', 4, 'suffix', params.suffix{2}, 'is_save', 0);
-        lwdata = FLW_butterworth_filter.get_lwdata(lwdata, option);
-        if a == 1 && b == 1
-            BetaPain_info(subject_idx).EEG.processing(end + 1).process = 'bandpass filtered for visualization';
-            BetaPain_info(subject_idx).EEG.processing(end).params.method = 'Butterworth';
-            BetaPain_info(subject_idx).EEG.processing(end).params.order = 4;
-            BetaPain_info(subject_idx).EEG.processing(end).params.limits = params.bandpass;
-            BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
+    % compute ICA and save  
+    fprintf('computing ICA matrix: ')
+    lwdataset = dataset(a).processed;
+    option = struct('ICA_mode', 2, 'algorithm', 1, 'num_ICs', params.ICA_comp, 'suffix', params.suffix{4}, 'is_save', 1);
+    lwdataset = FLW_compute_ICA_merged.get_lwdataset(lwdataset, option);
+    fprintf('done.\n')
+
+    % extract ICA parameters
+    matrix(a).condition = params.condition{a};
+    matrix(a).mix = lwdataset(1).header.history(end).option.mix_matrix;
+    matrix(a).unmix = lwdataset(1).header.history(end).option.unmix_matrix;    
+    if a == 1
+        params.ICA_chanlocs = lwdataset(1).header.chanlocs;
+        for i = 1:size(matrix(a).mix, 1)
+            params.ICA_labels{i} = ['IC',num2str(i)];
+        end
+        params.ICA_fs = 1/lwdataset(1).header.xstep;
+    end
+
+    % update dataset
+    dataset(a).ICA = lwdataset;
+
+    % unmix data
+    for d = 1:length(dataset(a).ICA)
+        for e = 1:size(dataset(a).ICA(d).data, 1)
+            dataset(a).unmixed(d).header = dataset(a).ICA(d).header;
+            dataset(a).unmixed(d).data(e, :, 1, 1, 1, :) = matrix(a).unmix * squeeze(dataset(a).ICA(d).data(e, :, 1, 1, 1, :));        
         end
     end
 end
+fprintf('\n')
+
+% update info structure
+BetaPain_info(subject_idx).EEG.processing(end + 1).process = 'ICA matrix computed';
+BetaPain_info(subject_idx).EEG.processing(end).params.method = 'Runica';
+BetaPain_info(subject_idx).EEG.processing(end).params.components = params.ICA_comp;
+BetaPain_info(subject_idx).EEG.processing(end).params.chanlocs = params.ICA_chanlocs;
+BetaPain_info(subject_idx).EEG.processing(end).params.labels = params.ICA_labels;
+BetaPain_info(subject_idx).EEG.processing(end).params.fs = params.ICA_fs;
+BetaPain_info(subject_idx).EEG.processing(end).params.matrix = matrix;
+BetaPain_info(subject_idx).EEG.processing(end).suffix = params.suffix{4};
+BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
+
+% update data structure
+output_vars = who('-file', sprintf('%s', output_file));
+if ismember('BetaPain_data', output_vars)
+    load(output_file, 'BetaPain_data')
+else
+    BetaPain_data = struct;
+end
+for a = 1:length(dataset)
+    BetaPain_data(subject_idx).beta(a).condition = params.condition{a};
+    BetaPain_data(subject_idx).beta(a).unmixed = dataset(a).unmixed;
+end
+
+% open letswave if not already open
+fig_all = findall(0, 'Type', 'figure');
+open = true;
+for f = 1:length(fig_all)
+    if contains(get(fig_all(f), 'Name'), 'Letswave', 'IgnoreCase', true)
+        open = false;
+        break;
+    end
+end
+if open
+    letswave
+end
 
 % save and continue
-save(output_file, 'BetaPain_info','-append')
-clear params a b c m data2load encode channel_all channel_mask lwdata option chans2interpolate chan_n chan_dist
+save(output_file, 'BetaPain_info', 'BetaPain_data', '-append')
+clear params a b c d e f i m data2load encode channel_all channel_mask lwdata option chans2interpolate chan_n chan_dist ...
+    lwdataset matrix fig_all open data header output_vars
+
+%% encode selected ICA components
+% ----- section input -----
+params.condition = {'pain', 'control'};
+% ------------------------- 
+% update output 
+load(output_file, 'BetaPain_info')
+
+% encode selected ICA components
+for a = 1:length(params.condition)
+    % ask for the input
+    prompt = {'radial components:', 'tangential components:'};
+    dlgtitle = sprintf('ICA - %s session', params.condition{a});
+    dims = [1 40];
+    definput = {'', ''};
+    input = inputdlg(prompt,dlgtitle,dims,definput);
+
+    % encode
+    BetaPain_info(subject_idx).EEG.processing(end).params.selected(a).condition = params.condition{a};
+    BetaPain_info(subject_idx).EEG.processing(end).params.selected(a).radial = str2num(input{1});
+    BetaPain_info(subject_idx).EEG.processing(end).params.selected(a).tangential = str2num(input{2});
+end
+
+% ask for continuation
+answer = questdlg('Do you want to continue with next subject?', 'Continue?', 'YES', 'NO', 'YES'); 
+if strcmp(answer, 'YES')
+    subject_idx = subject_idx + 1;
+end
+
+% save and continue
+save(output_file, 'BetaPain_info', '-append')
+clear params answer a
+
+%% compute beta amplitude and peak latency
+% ----- section input -----
+params.condition = {'pain', 'control'};
+params.timepoint = {'baseline', 't1', 't2', 't3', 't4', 't5', 't6'};
+% ------------------------- 
+%                                   - encode selected components
+% extract beta amplitude and PBL:   - frequency decomposition of retained
+%                                     signal at each electrode/trial                                  
+%                                   - average across electrodes/trials
+%                                   - remove aperiodic component
+%                                   - calculate peak amplitude and latency   
+
+clear params
 
 %% functions
 function dataset = reload_dataset(data2load, conditions, fieldname)
