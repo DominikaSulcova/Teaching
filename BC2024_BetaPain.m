@@ -467,9 +467,8 @@ params.condition = {'pain', 'control'};
 params.timepoint = {'baseline', 't1', 't2', 't3', 't4', 't5', 't6'};
 params.prefix = 'dc ds ep';
 params.suffix = {'no_mastoid' 'bandpass_beta'};
+params.interp_chans = 4;
 % ------------------------- 
-% encode bad channels
-% remove bad channels
 % re-reference to common average
 % filter at beta frequency 15 - 30Hz?
 % separately for each condition:    - ICA 25 channels
@@ -494,14 +493,114 @@ if exist('dataset') ~= 1
     if length(data2load) == length(params.condition) * length(params.timepoint) * 2
         % load the data
         dataset = reload_dataset(data2load, params.condition, 'processed');
+
+        % remove the mastoids
+        for a = 1:length(dataset)
+            for b = 1:length(dataset(a).processed)
+                % select dataset
+                lwdata.header = dataset(a).processed(b).header;
+                lwdata.data = dataset(a).processed(b).data;
+
+                % remove mastoids
+                channel_all = {lwdata.header.chanlocs.labels};
+                channel_mask = cellfun(@(x) strcmp(x, 'M1') || strcmp(x, 'M2'), channel_all);
+                params.channels2keep = channel_all(~channel_mask);
+                option = struct('type', 'channel', 'items', {params.channels2keep}, 'suffix', params.suffix{1}, 'is_save', 0);
+                lwdata = FLW_selection.get_lwdata(lwdata, option);
+
+                % update dataset
+                dataset(a).processed(b).header = lwdata.header;
+                dataset(a).processed(b).data = lwdata.data;
+            end 
+        end
+
+        % encode if necessary
+        encode = true;
+        for m = 1:length(BetaPain_info(subject_idx).EEG.processing)
+            if contains(BetaPain_info(subject_idx).EEG.processing(m).process, 'mastoid')
+                encode = false;
+            end
+        end
+        if encode
+            BetaPain_info(subject_idx).EEG.processing(end + 1).process = 'mastoid channels removed';
+            BetaPain_info(subject_idx).EEG.processing(end).params.channels_kept = params.channels2keep;
+            BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
+        end
     else
         error(sprintf('ERROR: Wrong number of datasets (%d) found in the directory!', length(data2load)/2))
     end
 end
 
+% interpolate channels if needed
+params.labels = {dataset(1).processed(1).header.chanlocs.labels};
+prompt = {sprintf('%s session:', params.condition{1}) sprintf('%s session:', params.condition{2})};
+dlgtitle = 'channel interpolation';
+dims = [1 170];
+definput = {strjoin(params.labels,' ') strjoin(params.labels,' ')};
+answer = inputdlg(prompt,dlgtitle,dims,definput);
+for a = 1:length(answer)
+    if ~isempty(answer{a})
+        % identify channels to interpolate
+        chans2interpolate = split(answer{a}, ' ');
+
+        % interpolate if needed
+        for c = 1:length(chans2interpolate)
+            if ~isempty(chans2interpolate{c})
+                % provide update
+                fprintf('%s session: interpolating channel %s\n', params.condition{a}, chans2interpolate{c})
+
+                % indentify the channel to interpolate
+                chan_n = find(strcmp(params.labels, chans2interpolate{c}));
+
+                % calculate distances with other electrodes
+                chan_dist = -ones(length(dataset(1).processed(1).header.chanlocs), 1);
+                for b = setdiff(1:length(dataset(1).processed(1).header.chanlocs), chan_n)
+                    if dataset(1).processed(1).header.chanlocs(b).topo_enabled == 1
+                        chan_dist(b) = sqrt((dataset(1).processed(1).header.chanlocs(b).X - dataset(1).processed(1).header.chanlocs(chan_n).X)^2 + ...
+                            (dataset(1).processed(1).header.chanlocs(b).Y - dataset(1).processed(1).header.chanlocs(chan_n).Y)^2 + ...
+                            (dataset(1).processed(1).header.chanlocs(b).Z - dataset(1).processed(1).header.chanlocs(chan_n).Z)^2);
+                    end
+                end
+                chan_dist((chan_dist==-1)) = max(chan_dist);
+                [~,chan_dist] = sort(chan_dist);
+
+                % identify neighbouring channels
+                chan_dist = chan_dist(1:params.interp_chans);
+                chans2use = params.labels;
+                chans2use = chans2use(chan_dist);
+
+                % cycle through all datasets
+                for d = 1:length(dataset(a).processed)
+                    % select data
+                    lwdata.header = dataset(a).processed(d).header;
+                    lwdata.data = dataset(a).processed(d).data;
+        
+                    % interpolate using the neighboring electrodes
+                    option = struct('channel_to_interpolate', chans2interpolate{c}, 'channels_for_interpolation_list', {chans2use}, ...
+                        'suffix', '', 'is_save', 0);
+                    lwdata = FLW_interpolate_channel.get_lwdata(lwdata, option);
+        
+                    % update dataset
+                    dataset(a).processed(d).header = lwdata.header;
+                    dataset(a).processed(d).data = lwdata.data;  
+                end
+                
+                % encode
+                if c == 1
+                    BetaPain_info(subject_idx).EEG.processing(end+1).process = sprintf('bad channels interpolated');
+                    BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
+                    encode = length(BetaPain_info(subject_idx).EEG.processing);
+                end
+                BetaPain_info(subject_idx).EEG.processing(encode).params.bad{c} = chans2interpolate{c};
+                BetaPain_info(subject_idx).EEG.processing(encode).params.chans_used{c} = strjoin(chans2use, ' ');  
+            end
+        end
+    end
+end
+clear prompt dlgtitle dims definput answer
 
 % pre-process
-fprintf('exporting for visualization: ')
+fprintf(': ')
 for a = 1:length(dataset)
     for b = 1:length(dataset(a).processed)
         % select dataset
@@ -540,7 +639,7 @@ end
 
 % save and continue
 save(output_file, 'BetaPain_info','-append')
-clear params data2load a
+clear params a b c m data2load encode channel_all channel_mask lwdata option chans2interpolate chan_n chan_dist
 
 %% functions
 function dataset = reload_dataset(data2load, conditions, fieldname)
