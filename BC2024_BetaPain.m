@@ -150,7 +150,7 @@ for a = 1:length(params.condition)
     datanames{1},datanames{2},datanames{3},datanames{4},datanames{5},datanames{6},datanames{7}, ...
     datanames{8},datanames{9},datanames{10},datanames{11},datanames{12},datanames{13},datanames{14})};
     dlgtitle = sprintf('subject %d - %s session: dataset', subject_idx, params.condition{a});
-    dims = [1 40];
+    dims = [1 60];
     definput = {''};
     input = inputdlg(prompt,dlgtitle,dims,definput);
     if ~isempty(input{1})
@@ -588,7 +588,7 @@ clear prompt dlgtitle dims definput answer
 
 % compute ICA matrix and save for letswave
 for a = 1:length(dataset)
-    fprintf('%s session:\n', params.condition{a})
+    fprintf('\n ======================== %s session ========================\n', params.condition{a})
 
     % pre-process all datasets
     fprintf('pre-processing: dataset ', params.condition{a})
@@ -640,7 +640,7 @@ for a = 1:length(dataset)
     matrix(a).unmix = lwdataset(1).header.history(end).option.unmix_matrix;    
     if a == 1
         params.ICA_chanlocs = lwdataset(1).header.chanlocs;
-        for i = 1:size(matrix(a).mix, 1)
+        for i = 1:size(matrix(a).mix, 2)
             params.ICA_labels{i} = ['IC',num2str(i)];
         end
         params.ICA_fs = 1/lwdataset(1).header.xstep;
@@ -712,7 +712,7 @@ for a = 1:length(params.condition)
     % ask for the input
     prompt = {'radial components:', 'tangential components:'};
     dlgtitle = sprintf('ICA - %s session', params.condition{a});
-    dims = [1 40];
+    dims = [1 60];
     definput = {'', ''};
     input = inputdlg(prompt,dlgtitle,dims,definput);
 
@@ -730,21 +730,238 @@ end
 
 % save and continue
 save(output_file, 'BetaPain_info', '-append')
-clear params answer a
+clear params a input prompt dlgtitle dims definput answer 
 
-%% compute beta amplitude and peak latency
+%% compute PSD of ICA components
 % ----- section input -----
 params.condition = {'pain', 'control'};
 params.timepoint = {'baseline', 't1', 't2', 't3', 't4', 't5', 't6'};
-% ------------------------- 
-%                                   - encode selected components
-% extract beta amplitude and PBL:   - frequency decomposition of retained
-%                                     signal at each electrode/trial                                  
-%                                   - average across electrodes/trials
-%                                   - remove aperiodic component
-%                                   - calculate peak amplitude and latency   
+params.foi_limits = [1, 50];
+params.method = 'pwelch';
+params.comp_type = {'radial' 'tangential'};
+params.colours = [0.9216    0.1490    0.1490;
+    0.0745    0.6235    1.0000;
+    1.0000    0.4784    0.8000;
+    0.2588    0.7216    0.0275]; 
+% -------------------------                                 
+% ask for subject number
+if ~exist('subject_idx')
+    prompt = {'subject number:'};
+    dlgtitle = 'subject';
+    dims = [1 40];
+    definput = {''};
+    input = inputdlg(prompt,dlgtitle,dims,definput);
+    subject_idx = str2num(input{1,1});
+end
+clear prompt dlgtitle dims definput input
 
-clear params
+% update output 
+clear dataset
+load(output_file, 'BetaPain_info', 'BetaPain_data')
+   
+% add fieldtrip to the top of search path
+addpath(genpath([folder.toolbox '\fieldtrip']));
+    
+% cycle through sessions
+fprintf('computing power spectrum density: \n')
+for c = 1:length(params.condition)
+    fprintf('%s session: \n', params.condition{c})
+
+    % cycle through timepoints
+    for t = 1:length(params.timepoint)
+        fprintf('%d - ', params.timepoint{t})
+
+        % select the unmixed data and the header
+        data = squeeze(BetaPain_data(subject_idx).beta(c).unmixed(t).data);
+        header = BetaPain_data(subject_idx).beta(c).unmixed(t).header;
+
+        % calculate PSD of all ICA components 
+        if strcmp(BetaPain_data(subject_idx).beta(c).condition, params.condition{c})                
+            % calculate PSD at individual trials
+            PSD = struct;
+            for e = 1:size(data, 1)
+                % calculate spectra using IRASA
+                % create a FieldTrip data structure
+                cfg = [];
+                cfg.trial = {squeeze(data(e, :, :))};       
+                cfg.time = {0 : header.xstep : (size(data, 3)-1)*header.xstep};      
+                cfg.label = BetaPain_info(subject_idxs).EEG.processing(end).params.labels';  
+                data_trial = ft_datatype_raw(cfg);
+                ft_checkdata(data_trial);
+
+                % extract original spectra
+                cfg = [];
+                cfg.output = 'pow';
+                cfg.foilim = params.foi_limits;  
+                cfg.pad = 'nextpow2'; 
+                cfg.method = 'irasa';    
+                cfg.output = 'original';
+                PSD(e).original = ft_freqanalysis(cfg, data_trial);
+
+                % extract fractal specra
+                cfg.output = 'fractal';
+                PSD(e).fractal = ft_freqanalysis(cfg, data_trial);
+
+                % compute oscillatory spectra
+                cfg = [];
+                cfg.parameter = 'powspctrm';
+                cfg.operation     = 'x2-x1';
+                PSD(e).oscillatory = ft_math(cfg, PSD(e).fractal, PSD(e).original);
+                
+                % calculate original spectrum using pwelch
+                for i = 1:size(data, 2)
+                    [PSD(e).pwelch.powspctrm(i, :), PSD(e).pwelch.freq] = pwelch(squeeze(data(e, i, :)), [], [], [], 1/header.xstep);
+                end
+                PSD(e).pwelch.powspctrm(:, PSD(e).pwelch.freq < 1 | PSD(e).pwelch.freq > 50) = [];
+                PSD(e).pwelch.freq(PSD(e).pwelch.freq < 1 | PSD(e).pwelch.freq > 50) = [];
+            end
+
+            % append to the data structure
+            BetaPain_data(subject_idxs).beta(c).psd(t).params.method = PSD(1).original.cfg.method;
+            BetaPain_data(subject_idxs).beta(c).psd(t).params.limits = PSD(1).original.cfg.foilim;
+            BetaPain_data(subject_idxs).beta(c).psd(t).params.pad = PSD(1).original.cfg.pad;
+            BetaPain_data(subject_idxs).beta(c).psd(t).params.label = PSD(1).original.label';
+            BetaPain_data(subject_idxs).beta(c).psd(t).params.freq = PSD(1).original.freq;
+            BetaPain_data(subject_idxs).beta(c).psd_pwelch(t).params.method = 'pwelch';
+            BetaPain_data(subject_idxs).beta(c).psd_pwelch(t).params.limits = params.foi_limits;
+            BetaPain_data(subject_idxs).beta(c).psd_pwelch(t).params.label = PSD(1).original.label';
+            BetaPain_data(subject_idxs).beta(c).psd_pwelch(t).params.freq = PSD(1).pwelch.freq;
+            for e = 1:length(PSD)
+                BetaPain_data(subject_idxs).beta(c).psd(t).original(e, :, :) = PSD(e).original.powspctrm;
+                BetaPain_data(subject_idxs).beta(c).psd(t).fractal(e, :, :) = PSD(e).fractal.powspctrm;
+                BetaPain_data(subject_idxs).beta(c).psd(t).oscillatory(e, :, :) = PSD(e).oscillatory.powspctrm;
+                BetaPain_data(subject_idxs).beta(c).psd_pwelch(t).original(e, :, :) = PSD(e).pwelch.powspctrm;
+            end
+                
+            % compute average PSD 
+            BetaPain_data(subject_idxs).beta(c).psd_avg(t).original.mean = squeeze(mean(BetaPain_data(subject_idxs).beta(c).psd(t).original, 1));
+            BetaPain_data(subject_idxs).beta(c).psd_avg(t).original.std = squeeze(std(BetaPain_data(subject_idxs).beta(c).psd(t).original, 0, 1));
+            BetaPain_data(subject_idxs).beta(c).psd_avg(t).fractal.mean = squeeze(mean(BetaPain_data(subject_idxs).beta(c).psd(t).fractal, 1));
+            BetaPain_data(subject_idxs).beta(c).psd_avg(t).fractal.std = squeeze(std(BetaPain_data(subject_idxs).beta(c).psd(t).fractal, 0, 1));
+            BetaPain_data(subject_idxs).beta(c).psd_avg(t).oscillatory.mean = squeeze(mean(BetaPain_data(subject_idxs).beta(c).psd(t).oscillatory, 1));
+            BetaPain_data(subject_idxs).beta(c).psd_avg(t).oscillatory.std = squeeze(std(BetaPain_data(subject_idxs).beta(c).psd(t).oscillatory, 0, 1));
+            BetaPain_data(subject_idxs).beta(c).psd_avg(t).pwelch.mean = squeeze(mean(BetaPain_data(subject_idxs).beta(c).psd_pwelch(t).original, 1));
+            BetaPain_data(subject_idxs).beta(c).psd_avg(t).pwelch.std = squeeze(std(BetaPain_data(subject_idxs).beta(c).psd_pwelch(t).original, 0, 1));
+
+            % save data structure            
+            save(output_file, 'BetaPain_data', '-append')
+        else
+            error('ERROR: Condition in BetaPain_data does not match condition in section parameters!')
+        end
+    end
+end
+fprintf('done.\n')
+
+% add letswave 6 to the top of search path
+addpath(genpath([folder.toolbox '\letswave 6']));
+
+% set plotting parameters
+switch params.method
+    case 'pwelch'
+        visual.x = BetaPain_data(subject_idx).beta(1).psd_pwelch(1).params.freq';
+    case 'irasa'
+        visual.x = BetaPain_data(subject_idx).beta(1).psd(1).params.freq';
+end
+y_limits = [];
+
+% plot the output figure
+fig = figure(figure_counter);
+set(fig, 'units', 'normalized', 'outerposition', [0 0 1 1])
+hold on
+for c = 1:length(params.condition)
+    % select component of interest
+    coi{1} = BetaPain_info.EEG.processing(end).params.selected(c).radial;
+    coi{2} = BetaPain_info.EEG.processing(end).params.selected(c).tangential;
+
+    % plot topoplot of the first component
+    subplot(4, 15, (c-1)*2*15 + 1)
+    topoplot(BetaPain_info.EEG.processing(end).params.matrix(c).mix(:, coi{1}), BetaPain_info.EEG.processing(end).params.chanlocs,...
+    'shading', 'interp', 'whitebk', 'on', 'electrodes', 'off')
+    set(gca,'color', [1 1 1]);
+    title(params.comp_type{1})
+
+    % plot topoplot of the first component
+    subplot(4, 15, (c-1)*2*15 + 15 + 1)
+    topoplot(BetaPain_info.EEG.processing(end).params.matrix(c).mix(:, coi{2}), BetaPain_info.EEG.processing(end).params.chanlocs,...
+    'shading', 'interp', 'whitebk', 'on', 'electrodes', 'off')
+    set(gca,'color', [1 1 1]);
+    title(params.comp_type{2})
+
+    % cycle through timepoints
+    for t = 1:length(params.timepoint)
+        % plot the psd
+        subplot(4, 15, (c-1)*2*15 + [(t-1)*2 + 2, (t-1)*2 + 3, 15 + (t-1)*2 + 2, 15 + (t-1)*2 + 3]) 
+        for a = 1:length(coi)
+            % select data to plot
+            switch params.method
+                case 'pwelch'
+                    visual.y = BetaPain_data(subject_idx).beta(c).psd_avg(t).pwelch.mean(coi{a}, :);
+                    visual.sd = BetaPain_data(subject_idx).beta(c).psd_avg(t).pwelch.std(coi{a}, :);
+                case 'irasa'
+                    visual.y = BetaPain_data(subject_idx).beta(c).psd_avg(t).oscillatory.mean(coi{a}, :);
+                    visual.sd = BetaPain_data(subject_idx).beta(c).psd_avg(t).oscillatory.std(coi{a}, :);
+            end
+
+            % % shade SD
+            % S(a) = fill([visual.x fliplr(visual.x)], [visual.y + visual.sd fliplr(visual.y - visual.sd)], ...
+            %     params.colours((c-1)*2 + a, :), 'FaceAlpha', 0.2, 'linestyle', 'none');
+            % hold on
+
+            % plot mean
+            P(a) = plot(visual.x, visual.y, Color = params.colours((c-1)*2 + a, :), LineWidth = 2.2);
+            hold on
+        end
+
+        % set figure limits
+        xlim([8, 35])
+        y_limits(c, t, :) = get(gca, 'YLim');
+
+        % axes
+        box off;
+        ax = gca;
+        ax.XAxisLocation = 'bottom';
+        ax.YAxisLocation = 'left';
+        ax.TickDir = 'out'; 
+        
+        % other parameters
+        if c == 2
+            xlabel('frequency (Hz)')
+        end
+        % ylabel(sprintf('PSD (%sV^2/Hz) %s SD)', char(956), char(177)))
+        set(gca, 'FontSize', 12)
+        set(gca, 'Layer', 'Top')
+
+        % add legend
+        if t == 1
+            legend(P, params.comp_type, 'Location', 'northwest', 'Box', 'off');
+        end
+    end
+end
+
+% set scaling across plots
+sgtitle(sprintf('subject %d: power of beta oscillations of selected components', subject_idx))
+for c = 1:length(params.condition)
+    for t = 1:length(params.timepoint)
+        subplot(4, 15, (c-1)*2*15 + [(t-1)*2 + 2, (t-1)*2 + 3, 15 + (t-1)*2 + 2, 15 + (t-1)*2 + 3])         
+        ylim([0 max(y_limits, [], 'all')])            
+        
+        % % plot frequency limits 
+        % hold on
+        % L(1) = line([13, 13], [0 max(y_limits, [], 'all')], 'Color', [0.8   0.8    0.8], 'LineWidth', 1.5, 'LineStyle', ':');
+        % L(2) = line([30, 30], [0 max(y_limits, [], 'all')], 'Color', [0.8   0.8    0.8], 'LineWidth', 1.5, 'LineStyle', ':');
+    end
+end
+
+% save figure and update counter
+saveas(fig, sprintf('%s\\figures\\%s_beta_%s.png', folder.output, BetaPain_info(subject_idx).ID, params.method))
+figure_counter = figure_counter + 1;
+
+% ask for continuation
+answer = questdlg('Do you want to continue with next subject?', 'Continue?', 'YES', 'NO', 'YES'); 
+if strcmp(answer, 'YES')
+    subject_idx = subject_idx + 1;
+end
+clear params a c e f s t data data_trial header PSD cfg coi visual answer y_limits fig S P L 
 
 %% functions
 function dataset = reload_dataset(data2load, conditions, fieldname)

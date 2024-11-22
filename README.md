@@ -1,5 +1,5 @@
 # Teaching
 ## Instructions for students
-- always update the processing scrip at the beginning of a work session
-- you can stop the script at any time and start where you left off in the next session 
-- regularly backup your output data
+- Always update the processing scrip at the beginning of a work session.
+- Do not run one section of the script more than once - if the script throws an  error and you are not able to finish the section, ask for help instead of trying to run it several times!
+- Regularly backup your output MATLAB file to the shared OneDrive folder.
