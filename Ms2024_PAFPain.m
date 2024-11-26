@@ -166,10 +166,15 @@ fprintf('done.\n')
 
 % save and continue
 save(output_file, 'PAFPain_info', 'PAFPain_measures', '-append')
-clear params c d p statement
+clear params c d p output_vars statement
 
 %% load and plot PSD
-
+% ----- section input -----
+params.colours = [0.9216    0.1490    0.1490;
+    0.0745    0.6235    1.0000;
+    1.0000    0.4784    0.8000;
+    0.2588    0.7216    0.0275]; 
+% ------------------------- 
 % load NLEP_data
 output_vars = who('-file', 'NLEP_output.mat');
 for a = 1:length(output_vars)
@@ -186,7 +191,31 @@ data_RSEEG(1:35) = NLEP_data_1to35.RSEEG(1:35);
 data_RSEEG = rmfield(data_RSEEG, "PSD_avg");
 clear NLEP_data NLEP_data_1to35
 
-clear a output_vars data_RSEEG
+% extract mean values for plotting
+visual.x = data_RSEEG(subject_idx).freq;
+data = [];
+for b = 1:length(data_RSEEG(subject_idx).PSD_st)
+    data(1, end + 1 : end + size(data_RSEEG(subject_idx).PSD_st(b).original, 1), :) = squeeze(mean(data_RSEEG(subject_idx).PSD_st(b).original, 2));
+    data(2, end + 1 : end + size(data_RSEEG(subject_idx).PSD_st(b).fractal, 1), :) = squeeze(mean(data_RSEEG(subject_idx).PSD_st(b).fractal, 2));
+end
+visual.y{1} = mean(squeeze(data(1, :, :)), 1);
+visual.y{2} = mean(squeeze(data(2, :, :)), 1);
+visual.SD{1} = std(squeeze(data(1, :, :)), 0, 1);
+visual.SD{2} = std(squeeze(data(2, :, :)), 0, 1);
+
+% plot mean PSD
+fig = figure(figure_counter);
+screen_size = get(0, 'ScreenSize');
+set(fig, 'Position', [screen_size(3)/4, screen_size(4)/4, screen_size(3) / 2.5, screen_size(4) / 2])
+plot_PSD(visual,'log_val', 'on', 'x_lim', [5, 80], ...
+    'colours', params.colours(1:length(visual.y), :), 'labels', {'original spectrum',  'aperiodic component'})
+
+% save figure and update counter
+figure_counter = figure_counter + 1;
+saveas(fig, sprintf('%s\\figures\\%s_PSD_original.png', folder.output, PAFPain_info(subject_idx).ID))
+
+
+clear a b output_vars data fig screen_size
 
 %% extract alpha measures per channel 
 
@@ -195,3 +224,124 @@ clear a output_vars data_RSEEG
 %% extract alpha measures per component
 
 %% export to excel
+
+%% functions
+function plot_PSD(visual, varargin)
+% =========================================================================
+% Reloads pre-processed EEG data of a single subject for following 
+% processing steps. 
+% Input:    - visual = a structure with x, y, SD
+%           - varargins: 'log_val', 'colours', 'x_lim', 'y_lim', 'shading', 'labels'
+% ========================================================================= 
+% set defaults
+log_val = false;
+colours = parula(length(visual.y));  
+x_lim = [visual.x(1), visual.x(end)];
+shading = true;
+alpha = 0.2;
+legend_loc = 'northeast';
+labels = [];
+for a = 1:length(visual.y)
+    labels{a} = sprintf('signal %d', a);
+end
+
+% check for varargins
+if ~isempty(varargin)
+    % log input values
+    i = find(strcmpi(varargin, 'log_val'));
+    if ~isempty(i) strcmp(varargin{i + 1}, 'on')
+        log_val = true;
+    end
+
+    % colours
+    i = find(strcmpi(varargin, 'colours'));
+    if ~isempty(i)
+        colours = varargin{i + 1};
+    end
+
+    % x limits
+    i = find(strcmpi(varargin, 'x_lim'));
+    if ~isempty(i)
+        x_lim = varargin{i + 1};
+    end
+
+    % y limits
+    i = find(strcmpi(varargin, 'y_lim'));
+    if ~isempty(i)
+        y_lim = varargin{i + 1};
+    end
+
+    % shading 
+    i = find(strcmpi(varargin, 'shading'));
+    if ~isempty(i) && strcmp(varargin{i + 1}, 'off')
+        shading = false;
+    end
+
+    % labels
+    i = find(strcmpi(varargin, 'labels'));
+    if ~isempty(i)
+        labels = varargin{i + 1};       
+    end     
+end
+
+% prepare data and labels
+if log_val
+    % log the input values
+    visual.x = log10(visual.x);
+    for a = 1:length(visual.y)
+        visual.y{a} = log10(visual.y{a});
+        visual.SD{a} = log10(visual.SD{a});
+    end
+
+    % adjust limits
+    x_lim = log10(x_lim);
+    if exist("y_lim")
+    end
+    
+    % determine legend location
+    legend_loc = 'southwest';
+
+    % prepare the axis labels 
+    ax_labels.x = 'frequency log10(Hz)'; 
+    ax_labels.y = 'PSD log10(μV²/Hz)'; 
+else
+    % determine legend location
+    legend_loc = 'northeast';
+
+    % prepare the axis labels 
+    ax_labels.x = 'frequency (Hz)'; 
+    ax_labels.y = 'PSD (μV²/Hz)'; 
+end
+
+% shade standard deviation
+if shading
+    for a = 1:length(visual.y) 
+        fill([visual.x fliplr(visual.x)], [visual.y{a} + visual.SD{a} fliplr(visual.y{a} - visual.SD{a})], ...
+            colours(a, :), 'FaceAlpha', alpha, 'linestyle', 'none');
+        hold on
+    end
+end
+
+% plot mean values
+for a = 1:length(visual.y) 
+    P(a) = plot(visual.x, visual.y{a}, 'Color', colours(a, :), 'LineWidth', 2.5);
+    hold on
+end
+
+% deal with limis
+xlim(x_lim)
+if ~exist('y_lim')
+    y_lim = ylim;
+end
+ylim(y_lim)
+
+% legend
+legend(P, labels, 'Location', legend_loc, 'fontsize', 14)
+legend('boxoff');
+
+% set other parameters
+xlabel(ax_labels.x)
+ylabel(ax_labels.y)
+set(gca, 'FontSize', 14)
+set(gca, 'Layer', 'Top')
+end
