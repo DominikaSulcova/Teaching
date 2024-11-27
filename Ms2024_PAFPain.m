@@ -624,10 +624,6 @@ clear params a b c d e i data2load dataset2load data header dataset_counter ...
     visual fig_visual fig_sensory screen_size 
 
 %% extract alpha measures per component
-% ----- section input -----
-% ------------------------- 
-% calculate PSD of unmixed data
-
 %% calculate GFP of LEPs and SEPs
 %% export to excel
 %% functions
