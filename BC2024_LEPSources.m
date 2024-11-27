@@ -6,6 +6,16 @@
 % student:  Pauline Kraus
 % ------------------------------------------------------------------------
 % project:  
+%           Analyzed dataset was acquired in 2024 in the pain research lab
+%           at the Medical School Hamburg (MSH). 45 healthy subjects were 
+%           included, each participating in a single experimental session.
+%           During the experiment, 63-cahnnel EEG was recorded during:         
+%           1) painful laser stimulation AND innocuous electric stimulation
+%                   - areas: both hands / both feet / a hand and a foot
+%                   - 2 blocks of 30 stimuli per each area
+%           3) resting-state with eyes open / closed
+%                   - 1.5 mins each
+%                   - at the beginning and in the middle of the session 
 % 
 % data:     
 % 

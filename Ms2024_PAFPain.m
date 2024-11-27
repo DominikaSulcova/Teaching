@@ -27,14 +27,22 @@
 %                   - 1.5 mins each
 %                   - at the beginning and in the middle of the session 
 % 
-% data:     - pre-processed EEG recordings + extracted PSD
+% data:     - pre-processed EEG recordings: RS-EEG, LEPs, SEPs 
+%           - full-spectrum PSD extracted from all RS-EEG datasets
+%           - pain ratings provided by subjects
 % 
-% script:   -
-%           - 
+% script:   - extracts subject info & pre-processed variables
+%           - loads and plots full-spectrum PSD
+%           - extracts alpha measures per channel, plots topo distributions
+%           - computes ICA at alpha frequency and plots all components
 %           
-% output:   1) PAFPain_info 
-%           2) PAFPain_data
-%           3) PAFPain_measures
+% output:   - PAFPain_info      --> MATLAB structure gathering dataset
+%                                   information
+%           - PAFPain_data      --> MATLAB structure gathering all newly
+%                                   produced datasets
+%           - PAFPain_measures  --> MATLAB structure gathering all measures
+%                                   intended for statistical analysis
+%           - excel table with all evaluated variables
 
 %% pararms - ALWAYS RUN AT THE BEGINNING OF THE SESSION
 % directories
@@ -626,6 +634,7 @@ clear params a b c d e i data2load dataset2load data header dataset_counter ...
 %% extract alpha measures per component
 %% calculate GFP of LEPs and SEPs
 %% export to excel
+%% plot group values
 %% functions
 function plot_PSD(visual, varargin)
 % =========================================================================
