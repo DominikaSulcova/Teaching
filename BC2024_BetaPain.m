@@ -722,12 +722,6 @@ for a = 1:length(params.condition)
     BetaPain_info(subject_idx).EEG.processing(end).params.selected(a).tangential = str2num(input{2});
 end
 
-% ask for continuation
-answer = questdlg('Do you want to continue with next subject?', 'Continue?', 'YES', 'NO', 'YES'); 
-if strcmp(answer, 'YES')
-    subject_idx = subject_idx + 1;
-end
-
 % save and continue
 save(output_file, 'BetaPain_info', '-append')
 clear params a input prompt dlgtitle dims definput answer 

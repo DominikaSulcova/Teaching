@@ -247,10 +247,38 @@ plot_PSD(visual,'log_val', params.log_val, 'x_lim', [5, 45], 'shading', 'off', .
 saveas(fig, sprintf('%s\\figures\\%s_PSD_oscillatory.png', folder.output, PAFPain_info(subject_idx).ID))
 figure_counter = figure_counter + 1;
 
-% save data and continue
-PAFPain_data.PSD = data_RSEEG;
+% identify conditions
+params.conditions = {'open' 'closed' ...
+    sprintf('%s %s', PAFPain_info(subject_idx).area{1}, PAFPain_info(subject_idx).side{1})...
+    sprintf('%s %s', PAFPain_info(subject_idx).area{2}, PAFPain_info(subject_idx).side{2})};
+
+% save average data to data structure
+PAFPain_data(subject_idx).PSD_avg = struct([]);
+for c = 1:length(params.conditions)
+    % identify and select dataset(s)
+    data_idx = contains(data_RSEEG(subject_idx).dataset, params.conditions{c}, 'IgnoreCase', true); 
+    data_codnition.dataset = data_RSEEG(subject_idx).dataset(data_idx);
+    data_codnition.psd = data_RSEEG(subject_idx).PSD_st(data_idx);
+
+    % cycle through datsets
+    for d = 1:length(data_codnition.dataset)
+        % encode condition
+        PAFPain_data(subject_idx).PSD_avg(end+1).condition = params.conditions{c};
+
+        % encode dataset name
+        PAFPain_data(subject_idx).PSD_avg(end).dataset = data_codnition.dataset{d};
+
+        % encode frequencies
+        PAFPain_data(subject_idx).PSD_avg(end).freqs = data_RSEEG(subject_idx).freq;
+
+        % save data averaged per codition
+        PAFPain_data(subject_idx).PSD_avg(end).original = squeeze(mean(data_codnition.psd(d).original, 1));
+        PAFPain_data(subject_idx).PSD_avg(end).fractal = squeeze(mean(data_codnition.psd(d).fractal, 1));
+        PAFPain_data(subject_idx).PSD_avg(end).oscillatory = squeeze(mean(data_codnition.psd(d).oscillatory, 1));
+    end
+end
 save(output_file, 'PAFPain_data', '-append')
-clear params a b c d output_vars data visual fig screen_size
+clear params a b c d output_vars data visual fig screen_size data_idx data_codnition
 
 %% extract alpha measures per channel 
 % ----- section input -----
@@ -364,27 +392,244 @@ clear params a b c d freq_idx freq_psd psd_trial ...
 
 %% compute ICA at alpha frequency
 % ----- section input -----
-params.prefix = '';
-params.bandpass = [8 12];
+params.prefix = {'icfilt ica_all chunked' 'icfilt ica_all RS'};
+params.suffix = {'alpha' 'ica'};
+params.bandpass = [7 13];
 params.ICA_comp = 7;
 % ------------------------- 
 % add letswave 7 to the top of search path
 addpath(genpath([folder.toolbox '\letswave 7']));
 
-% prepare letswave-friendly dataset
-for a = 1:length(data_RSEEG(subject_idx).dataset)
-    % prepare header
-    dataset(a).header = header;
+% identify conditions
+params.conditions = {'open' 'closed' ...
+    sprintf('%s %s', PAFPain_info(subject_idx).area{1}, PAFPain_info(subject_idx).side{1})...
+    sprintf('%s %s', PAFPain_info(subject_idx).area{2}, PAFPain_info(subject_idx).side{2})};
 
+% look for available RS-EEG data
+data2load = dir(sprintf('%s\\*%s\\%s*%s*', folder.data, PAFPain_info(subject_idx).ID, params.prefix{1}, PAFPain_info(subject_idx).ID));
+data2load = [data2load; dir(sprintf('%s\\*%s\\%s*%s*', folder.data, PAFPain_info(subject_idx).ID, params.prefix{2}, PAFPain_info(subject_idx).ID))];
 
+% load data into a letswave-friendly dataset
+dataset = struct([]);
+dataset_counter = 1;
+if length(data2load) == length(data_RSEEG(subject_idx).dataset)*2
+    % update
+    fprintf('loading the datasets: ')
+
+    % cycle through conditions
+    for a = 1:length(params.conditions)
+        % identify the datasets
+        dataset2load = data2load(contains({data2load.name}, params.conditions{a}, 'IgnoreCase', true)); 
+
+        % cycle through the datsets
+        for b = 1:length(dataset2load)                
+            if contains(dataset2load(b).name, 'lw6')
+                % update
+                fprintf('%d ... ', dataset_counter)
+                dataset_counter = dataset_counter + 1;
+
+                % append condition
+                dataset(end+1).condition = params.conditions{a};
+
+                % append name
+                dataset(end).name = dataset2load(b).name;
+
+                % load the header
+                load(sprintf('%s\\%s', dataset2load(b).folder, dataset2load(b).name), '-mat');
+                dataset(end).header = header;
+            elseif contains(dataset2load(b).name, 'mat')
+                % load the data
+                load(sprintf('%s\\%s', dataset2load(b).folder, dataset2load(b).name));
+                dataset(end).data = data;
+            end
+        end
+    end
+else
+    error('ERROR: Wrong number of datasets (%d) found in the directory!', length(data2load))
+end
+fprintf('done.\n\n')
+
+% filter in the alpha band
+fprintf('applying aplpha bandpass filter:\ndataset ')
+for c = 1:length(dataset)
+    % update
+    fprintf('%d ...', c)
+
+    % select dataset
+    lwdata.header = dataset(c).header;
+    lwdata.data = dataset(c).data;
+
+    % alpha bandpass
+    option = struct('filter_type', 'bandpass', 'high_cutoff', params.bandpass(2), 'low_cutoff', params.bandpass(1), ... 
+        'filter_order', 4, 'suffix', params.suffix{1}, 'is_save', 0);
+    lwdata = FLW_butterworth_filter.get_lwdata(lwdata, option);
+    if c == 1
+        PAFPain_info(subject_idx).ICA(1).process = 'bandpass filtered at alpha frequency';
+        PAFPain_info(subject_idx).ICA(1).params.method = 'Butterworth';
+        PAFPain_info(subject_idx).ICA(1).params.order = 4;
+        PAFPain_info(subject_idx).ICA(1).params.limits = params.bandpass;
+        PAFPain_info(subject_idx).ICA(1).suffix = params.suffix{1};
+        PAFPain_info(subject_idx).ICA(1).date = sprintf('%s', date);
+    end
+
+    % update dataset
+    dataset(c).header = lwdata.header;
+    dataset(c).data = lwdata.data;
+end
+fprintf('done.\n\n')
+
+% subset lwdataset
+fileds2remove = {'condition' 'name'};
+lwdataset = rmfield(dataset, fileds2remove);
+
+% compute ICA and save  
+fprintf('computing ICA matrix: \n')
+option = struct('ICA_mode', 2, 'algorithm', 1, 'num_ICs', params.ICA_comp, 'suffix', params.suffix{2}, 'is_save', 1);
+lwdataset = FLW_compute_ICA_merged.get_lwdataset(lwdataset, option);
+fprintf('done.\n\n')
+
+% update dataset
+for d = 1:length(dataset)
+    dataset(d).header = lwdataset(d).header;
+    dataset(d).data = lwdataset(d).data;
 end
 
-clear a
+% extract ICA parameters
+matrix.mix = dataset(1).header.history(end).option.mix_matrix;
+matrix.unmix = dataset(1).header.history(end).option.unmix_matrix;   
+for i = 1:size(matrix.mix, 2)
+    params.ICA_labels{i} = ['IC', num2str(i)];
+end
+params.ICA_fs = 1/dataset(1).header.xstep;
+
+% encode ICA parameters
+PAFPain_info(subject_idx).ICA(2).process = 'ICA matrix computed';
+PAFPain_info(subject_idx).ICA(2).params.method = 'Runica';
+PAFPain_info(subject_idx).ICA(2).params.components = params.ICA_comp;
+PAFPain_info(subject_idx).ICA(2).params.chanlocs = dataset(1).header.chanlocs;
+PAFPain_info(subject_idx).ICA(2).params.labels = params.ICA_labels;
+PAFPain_info(subject_idx).ICA(2).params.fs = params.ICA_fs;
+PAFPain_info(subject_idx).ICA(2).params.matrix_mix = matrix.mix;
+PAFPain_info(subject_idx).ICA(2).params.matrix_unmix = matrix.unmix;
+PAFPain_info(subject_idx).ICA(2).suffix = params.suffix{2};
+PAFPain_info(subject_idx).ICA(2).date = sprintf('%s', date);
+
+% unmix ICA components and save to data structure
+for d = 1:length(dataset)
+    % encode condition
+    PAFPain_data(subject_idx).ICA(d).condition = dataset(d).condition;
+
+    % save the header
+    PAFPain_data(subject_idx).ICA(d).header = dataset(d).header;
+    
+    % save unmixed data
+    for e = 1:size(dataset(d).data, 1)        
+        PAFPain_data(subject_idx).ICA(d).data_unmixed(e, :, 1, 1, 1, :) = matrix.unmix * squeeze(dataset(d).data(e, :, 1, 1, 1, :));        
+    end
+end
+save(output_file, 'PAFPain_data', '-append')
+
+% calculate MRS of unmixed data
+PAFPain_measures(subject_idx).ICA.conditions = params.conditions;
+data_conditions{1} = []; data_conditions{2} = []; data_conditions{3} = []; data_conditions{4} = [];
+for d = 1:length(PAFPain_data(subject_idx).ICA)
+    % extract MRS at single-trial level
+    data = [];
+    for e = 1:size(PAFPain_data(subject_idx).ICA(d).data_unmixed, 1)
+        for i = 1:size(PAFPain_data(subject_idx).ICA(d).data_unmixed, 2)
+            data(e, i) = sqrt(mean(squeeze(PAFPain_data(subject_idx).ICA(d).data_unmixed(e, i, 1, 1, 1, :)).^2));
+        end
+    end
+
+    % append data
+    if contains(PAFPain_data(subject_idx).ICA(d).condition, PAFPain_measures(subject_idx).ICA.conditions{1})
+        data_conditions{1}(end + 1 : end + size(data, 1), :) = data;
+    elseif contains(PAFPain_data(subject_idx).ICA(d).condition, PAFPain_measures(subject_idx).ICA.conditions{2})
+        data_conditions{2}(end + 1 : end + size(data, 1), :) = data;
+    elseif contains(PAFPain_data(subject_idx).ICA(d).condition, PAFPain_measures(subject_idx).ICA.conditions{3})
+        data_conditions{3}(end + 1 : end + size(data, 1), :) = data;
+    elseif contains(PAFPain_data(subject_idx).ICA(d).condition, PAFPain_measures(subject_idx).ICA.conditions{4})
+        data_conditions{4}(end + 1 : end + size(data, 1), :) = data;
+    end
+end
+PAFPain_measures(subject_idx).ICA.MRS = data_conditions;
+
+% add letswave 6 to the top of search path
+addpath(genpath([folder.toolbox '\letswave 6']));
+
+% prepare a structure for plotting
+visual.components = PAFPain_info(subject_idx).ICA(2).params.labels;  
+visual.labels_visual = PAFPain_measures(subject_idx).ICA.conditions([1,2]);  
+visual.labels_sensory = PAFPain_measures(subject_idx).ICA.conditions([3,4]); 
+visual.chanlocs = PAFPain_info(subject_idx).ICA(2).params.chanlocs;  
+
+% plot IC topographies and MRS differences across eyes open/closed datasets
+fig_visual = figure(figure_counter);
+screen_size = get(0, 'ScreenSize');
+set(fig_visual, 'Position', [screen_size(3)/5, 1, 3*screen_size(3)/5, 9*screen_size(4)/10])
+for i = 1:length(visual.components)
+    % plot IC topography 
+    subplot(ceil(length(visual.components)/2), 4, (i-1)*2 + 1);
+    visual.topo = double(PAFPain_info(subject_idx).ICA(2).params.matrix_mix (:, i)');
+    plot_topo(visual.topo, visual.chanlocs, 'lims', [-3, 3], 'colorbar', 'off')
+    title(visual.components{i})
+
+    % calculate mean MRS
+    visual.MRS(1) = mean(data_conditions{1}(:, i));
+    visual.MRS(2) = mean(data_conditions{2}(:, i));
+    visual.SEM(1) = std(data_conditions{1}(:, i)) / sqrt(size(data_conditions{1}(:, i), 1));
+    visual.SEM(2) = std(data_conditions{2}(:, i)) / sqrt(size(data_conditions{2}(:, i), 1));
+
+    % plot barplot
+    subplot(ceil(length(visual.components)/2), 4, (i-1)*2 + 2);
+    plot_barplot(visual.MRS, visual.SEM, visual.labels_visual, 'y_label', sprintf('mean MRS %s SEM', char(177)))
+end
+sgtitle('ICs: sensitivity to visual input')
+
+% save figure and update figure counter
+saveas(fig_visual, sprintf('%s\\figures\\%s_ICs_visual.png', folder.output, PAFPain_info(subject_idx).ID))
+figure_counter = figure_counter + 1;
+
+% plot IC topographies and MRS differences across stimulated areas
+fig_sensory = figure(figure_counter);
+screen_size = get(0, 'ScreenSize');
+set(fig_sensory, 'Position', [screen_size(3)/5, 1, 3*screen_size(3)/5, 9*screen_size(4)/10])
+for i = 1:length(visual.components)
+    % plot IC topography 
+    subplot(ceil(length(visual.components)/2), 4, (i-1)*2 + 1);
+    visual.topo = double(PAFPain_info(subject_idx).ICA(2).params.matrix_mix (:, i)');
+    plot_topo(visual.topo, visual.chanlocs, 'lims', [-3, 3], 'colorbar', 'off')
+    title(visual.components{i})
+
+    % calculate mean MRS
+    visual.MRS(1) = mean(data_conditions{3}(:, i));
+    visual.MRS(2) = mean(data_conditions{4}(:, i));
+    visual.SEM(1) = std(data_conditions{3}(:, i)) / sqrt(size(data_conditions{3}(:, i), 1));
+    visual.SEM(2) = std(data_conditions{4}(:, i)) / sqrt(size(data_conditions{4}(:, i), 1));
+
+    % plot barplot
+    subplot(ceil(length(visual.components)/2), 4, (i-1)*2 + 2);
+    plot_barplot(visual.MRS, visual.SEM, visual.labels_sensory, 'y_label', sprintf('mean MRS %s SEM', char(177)), 'palette', 'winter')
+end
+sgtitle('ICs: sensitivity to sensory input')
+
+% save figure and update figure counter
+saveas(fig_sensory, sprintf('%s\\figures\\%s_ICs_sensory.png', folder.output, PAFPain_info(subject_idx).ID))
+figure_counter = figure_counter + 1;
+
+% save output structures and continue
+save(output_file, 'PAFPain_info', 'PAFPain_measures', '-append')
+clear params a b c d e i data2load dataset2load data header dataset_counter ...
+    lwdata option lwdataset fileds2remove matrix data_conditions ...
+    visual fig_visual fig_sensory screen_size 
 
 %% extract alpha measures per component
+% ----- section input -----
+% ------------------------- 
+% calculate PSD of unmixed data
 
+%% calculate GFP of LEPs and SEPs
 %% export to excel
-
 %% functions
 function plot_PSD(visual, varargin)
 % =========================================================================
@@ -511,10 +756,11 @@ function plot_topo(data, chanlocs, varargin)
 % Input:    - data = a vector of measured values 1 x n of channels
 %           - chanlocs = a structure with channel locations
 %           - varargins: 
-%             'lims' 'label'
+%             'lims' 'colorbar'
 % ========================================================================= 
 % define defaults
 lims = [-5 5];
+plot_cb = true;
 
 % check for varargins
 if ~isempty(varargin)
@@ -522,6 +768,12 @@ if ~isempty(varargin)
     i = find(strcmpi(varargin, 'lims'));
     if ~isempty(i) 
         lims = varargin{i + 1};
+    end
+
+    % colorbar
+    i = find(strcmpi(varargin, 'colorbar'));
+    if ~isempty(i) && strcmp(varargin{i + 1}, 'off')
+        plot_cb = false;
     end
 end
 
@@ -531,7 +783,55 @@ set(gca,'color', [1 1 1]);
 
 % add colorbar
 colormap(jet)
-cb = colorbar;
-set(cb, 'Position', [0.15, 0.05, 0.7, 0.03]);
-set(cb, 'Orientation', 'horizontal');
+if plot_cb
+    cb = colorbar;
+    set(cb, 'Position', [0.15, 0.05, 0.7, 0.03]);
+    set(cb, 'Orientation', 'horizontal');
+end
+end
+function plot_barplot(means, whiskers, labels, varargin)
+% =========================================================================
+% Plots a simple barplot.  
+% Input:    - means = a vector of mean values
+%           - whiskers = a vector of SEM or SD
+%           - labels = a cell array with group labels
+%           - varagins: 'y_label', 'colours', 'palette'
+% ========================================================================= 
+% set defaults
+y_label = sprintf('mean value %s SEM', char(177));
+colours = prism(length(means)); 
+
+% check for varargins
+if ~isempty(varargin)
+    % y axis label
+    i = find(strcmpi(varargin, 'y_label'));
+    if ~isempty(i) 
+        y_label = varargin{i + 1};
+    end
+
+    % colours
+    i = find(strcmpi(varargin, 'colours'));
+    if ~isempty(i) 
+        colours = varargin{i + 1};
+    end
+
+    % palette
+    i = find(strcmpi(varargin, 'palette'));
+    if ~isempty(i) 
+        statement = sprintf('colours = %s(length(means)); ', varargin{i + 1});
+        eval(statement)
+    end
+end
+
+% plot bar plot
+B = bar(means, 'FaceColor', 'flat');  
+hold on;
+
+% add one-sided error bars
+E = errorbar(1:2, means, zeros(size(whiskers)), whiskers, 'k', 'linestyle', 'none', 'LineWidth', 1.5);
+
+% other parameters
+set(gca, 'XTickLabel', labels); 
+ylabel(y_label);
+B.CData = colours;
 end
