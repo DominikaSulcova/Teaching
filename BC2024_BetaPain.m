@@ -41,9 +41,13 @@
 %               - datasets saved in letswave format 
 %           - 
 %           
-% output:   1) BetaPain_info 
-%           2) BetaPain_measures
-%           3) BetaPain_data
+% output:   - BetaPain_info     --> MATLAB structure gathering dataset
+%                                   information
+%           - BetaPain_measures --> MATLAB structure gathering all measures
+%                                   intended for statistical analysis
+%           - BetaPain_data     --> MATLAB structure gathering all newly
+%                                   produced datasets
+%           - excel table with all evaluated variables
 
 %% parameters - ALWAYS RUN AT THE BEGINNING OF THE SESSION
 % directories

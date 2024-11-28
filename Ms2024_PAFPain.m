@@ -23,7 +23,7 @@
 %           1) painful laser stimulation AND innocuous electric stimulation
 %                   - areas: both hands / both feet / a hand and a foot
 %                   - 2 blocks of 30 stimuli per each area
-%           3) resting-state with eyes open / closed
+%           2) resting-state with eyes open / closed
 %                   - 1.5 mins each
 %                   - at the beginning and in the middle of the session 
 % 
@@ -64,6 +64,7 @@ definput = {''};
 input = inputdlg(prompt,dlgtitle,dims,definput);
 subject_idx = str2num(input{1,1});
 clear prompt dlgtitle dims definput input
+fprintf('section finished.\n')
 
 %% extract subject info & pre-processed variables
 % ----- section input -----
@@ -106,7 +107,7 @@ end
 
 % load NLEP_info 
 if exist('NLEP_info') ~= 1
-    load(sprintf('%s\\NLEP_output.mat', folder.data), 'NLEP_info') 
+    load('NLEP_output.mat', 'NLEP_info') 
 end
 
 % extract subject & session information
@@ -175,6 +176,7 @@ fprintf('done.\n')
 % save and continue
 save(output_file, 'PAFPain_info', 'PAFPain_measures', '-append')
 clear params c d p output_vars statement
+fprintf('section finished.\n')
 
 %% load and plot PSD
 % ----- section input -----
@@ -287,6 +289,7 @@ for c = 1:length(params.conditions)
 end
 save(output_file, 'PAFPain_data', '-append')
 clear params a b c d output_vars data visual fig screen_size data_idx data_codnition
+fprintf('section finished.\n')
 
 %% extract alpha measures per channel 
 % ----- section input -----
@@ -397,13 +400,14 @@ save(output_file, 'PAFPain_measures', '-append')
 clear params a b c d freq_idx freq_psd psd_trial ...
     PAF PAF_conditions CAF CAF_plot CAF_conditions amplitude amplitude_plot amplitude_conditions ...
     fig_amplitude fig_CAF labels_conditions 
+fprintf('section finished.\n')
 
 %% compute ICA at alpha frequency
 % ----- section input -----
 params.prefix = {'icfilt ica_all chunked' 'icfilt ica_all RS'};
 params.suffix = {'alpha' 'ica'};
 params.bandpass = [7 13];
-params.ICA_comp = 7;
+params.ICA_comp = 8;
 % ------------------------- 
 % add letswave 7 to the top of search path
 addpath(genpath([folder.toolbox '\letswave 7']));
@@ -458,7 +462,7 @@ end
 fprintf('done.\n\n')
 
 % filter in the alpha band
-fprintf('applying aplpha bandpass filter:\ndataset ')
+fprintf('applying alpha bandpass filter:\ndataset ')
 for c = 1:length(dataset)
     % update
     fprintf('%d ...', c)
@@ -625,11 +629,39 @@ sgtitle('ICs: sensitivity to sensory input')
 saveas(fig_sensory, sprintf('%s\\figures\\%s_ICs_sensory.png', folder.output, PAFPain_info(subject_idx).ID))
 figure_counter = figure_counter + 1;
 
-% save output structures and continue
-save(output_file, 'PAFPain_info', 'PAFPain_measures', '-append')
+% save the measures structure 
+save(output_file, 'PAFPain_measures', '-append')
+
+% categorize components
+prompt = {'visual ICs:' 'bilateral sensorimotor ICs:' sprintf('%s ICs:', params.conditions{3}) sprintf('%s ICs:', params.conditions{4})};
+dlgtitle = 'categorize ICA components';
+dims = [1 50];
+definput = {'' '' '' ''};
+input = inputdlg(prompt,dlgtitle,dims,definput);
+
+replace(params.conditions{3}, ' ', '_')
+
+% encode to the info structure and save
+PAFPain_info(subject_idx).ICA(3).process = 'ICs categorized';
+PAFPain_info(subject_idx).ICA(3).params.method = 'visual inspection';
+PAFPain_info(subject_idx).ICA(3).params.visual = str2num(input{1});
+PAFPain_info(subject_idx).ICA(3).params.sm_bilateral = str2num(input{2});
+statement = sprintf('PAFPain_info(subject_idx).ICA(3).params.sm_%s = str2num(input{3});', replace(params.conditions{3}, ' ', '_'));
+eval(statement)
+statement = sprintf('PAFPain_info(subject_idx).ICA(3).params.sm_%s = str2num(input{4});', replace(params.conditions{4}, ' ', '_'));
+eval(statement)
+PAFPain_info(subject_idx).ICA(3).date = sprintf('%s', date);
+save(output_file, 'PAFPain_info', '-append')
+
+% ask for continuation
+answer = questdlg('Do you want to continue with next subject?', 'Continue?', 'YES', 'NO', 'YES'); 
+if strcmp(answer, 'YES')
+    subject_idx = subject_idx + 1;
+end
 clear params a b c d e i data2load dataset2load data header dataset_counter ...
     lwdata option lwdataset fileds2remove matrix data_conditions ...
-    visual fig_visual fig_sensory screen_size 
+    visual fig_visual fig_sensory screen_size prompt dlgtitle dims definput input
+fprintf('section finished.\n')
 
 %% extract alpha measures per component
 %% calculate GFP of LEPs and SEPs
