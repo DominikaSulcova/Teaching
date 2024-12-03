@@ -56,21 +56,8 @@ study = 'PAFPain';
 output_file = sprintf('%s\\%s_output.mat', folder.output, study);
 figure_counter = 1;
 
-% current participant
-prompt = {'subject number:'};
-dlgtitle = 'subject';
-dims = [1 40];
-definput = {''};
-input = inputdlg(prompt,dlgtitle,dims,definput);
-subject_idx = str2num(input{1,1});
-clear prompt dlgtitle dims definput input
-fprintf('section finished.\n')
-
-%% extract subject info & pre-processed variables
-% ----- section input -----
-params.peak = {'N1' 'N2' 'P2'};
-% ------------------------- 
-% update output structures
+% load output structures
+fprintf('loading output structures...\n')
 if exist(output_file) == 2 
     % check available variables
     output_vars = who('-file', sprintf('%s', output_file));
@@ -105,6 +92,20 @@ else
     save(output_file, 'PAFPain_info', 'PAFPain_data', 'PAFPain_measures')
 end
 
+% current participant
+prompt = {'subject number:'};
+dlgtitle = 'subject';
+dims = [1 40];
+definput = {''};
+input = inputdlg(prompt,dlgtitle,dims,definput);
+subject_idx = str2num(input{1,1});
+clear prompt dlgtitle dims definput input
+fprintf('section finished.\n')
+
+%% extract subject info & pre-processed variables
+% ----- section input -----
+params.peak = {'N1' 'N2' 'P2'};
+% ------------------------- 
 % load NLEP_info 
 if exist('NLEP_info') ~= 1
     load('NLEP_output.mat', 'NLEP_info') 
