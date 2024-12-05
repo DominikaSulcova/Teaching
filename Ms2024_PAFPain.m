@@ -44,10 +44,10 @@
 %                                   intended for statistical analysis
 %           - excel table with all evaluated variables
 
-%% pararms - ALWAYS RUN AT THE BEGINNING OF THE SESSION
+%% 1) pararms - ALWAYS RUN AT THE BEGINNING OF THE SESSION
 % directories
 folder.toolbox = uigetdir(pwd, 'Choose the toolbox folder');    % MATLAB toolboxes
-folder.data = uigetdir(pwd, 'Coose the input folder');          % processed EEG data --> this should be the folder 'PAFPain' at the external harddrive 'PHYSIOLOGIE'
+folder.data = uigetdir(pwd, 'Coose the input folder');          % processed EEG data 
 folder.output = uigetdir(pwd, 'Choose the output folder');      % output folder --> local folder with figures, output files, export tables...
 cd(folder.output)
 
@@ -102,7 +102,7 @@ subject_idx = str2num(input{1,1});
 clear prompt dlgtitle dims definput input
 fprintf('section finished.\n')
 
-%% extract subject info & pre-processed variables
+%% 2) extract subject info & pre-processed variables
 % ----- section input -----
 params.peak = {'N1' 'N2' 'P2'};
 % ------------------------- 
@@ -179,7 +179,7 @@ save(output_file, 'PAFPain_info', 'PAFPain_measures', '-append')
 clear params c d p output_vars statement
 fprintf('section finished.\n')
 
-%% load and plot PSD
+%% 3) load and plot PSD
 % ----- section input -----
 params.log_val = 'off';
 params.colours = [0.9216    0.1490    0.1490;
@@ -188,20 +188,22 @@ params.colours = [0.9216    0.1490    0.1490;
     0.2588    0.7216    0.0275]; 
 % ------------------------- 
 % load NLEP_data
-output_vars = who('-file', 'NLEP_output.mat');
-for a = 1:length(output_vars)
-    if contains(output_vars{a}, 'data') 
-        load('NLEP_output.mat', output_vars{a})
-        if evalin('base', sprintf('isstruct(%s)', output_vars{a}))
-        else
-            evalin('base', sprintf('clear %s', output_vars{a}))
+if exist('data_RSEEG') ~= 1
+    output_vars = who('-file', 'NLEP_output.mat');
+    for a = 1:length(output_vars)
+        if contains(output_vars{a}, 'data') 
+            load('NLEP_output.mat', output_vars{a})
+            if evalin('base', sprintf('isstruct(%s)', output_vars{a}))
+            else
+                evalin('base', sprintf('clear %s', output_vars{a}))
+            end
         end
     end
+    data_RSEEG = NLEP_data.RSEEG;
+    data_RSEEG(1:35) = NLEP_data_1to35.RSEEG(1:35);
+    data_RSEEG = rmfield(data_RSEEG, "PSD_avg");
+    clear NLEP_data NLEP_data_1to35
 end
-data_RSEEG = NLEP_data.RSEEG;
-data_RSEEG(1:35) = NLEP_data_1to35.RSEEG(1:35);
-data_RSEEG = rmfield(data_RSEEG, "PSD_avg");
-clear NLEP_data NLEP_data_1to35
 
 % extract mean values for plotting
 visual.x = data_RSEEG(subject_idx).freq;
@@ -292,7 +294,7 @@ save(output_file, 'PAFPain_data', '-append')
 clear params a b c d output_vars data visual fig screen_size data_idx data_codnition
 fprintf('section finished.\n')
 
-%% extract alpha measures per channel 
+%% 4) extract alpha measures per channel 
 % ----- section input -----
 params.FOI = [7  15];
 params.measures = {'PAF' 'CAF' 'amplitude'};
@@ -403,7 +405,7 @@ clear params a b c d freq_idx freq_psd psd_trial ...
     fig_amplitude fig_CAF labels_conditions 
 fprintf('section finished.\n')
 
-%% compute ICA at alpha frequency
+%% 5) compute ICA at alpha frequency
 % ----- section input -----
 params.prefix = {'icfilt ica_all chunked' 'icfilt ica_all RS'};
 params.suffix = {'alpha' 'ica'};
