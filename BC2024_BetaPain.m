@@ -965,8 +965,10 @@ for c = 1:length(params.condition)
         set(gca, 'Layer', 'Top')
 
         % add legend
-        if t == 1
-            legend(P, params.comp_type, 'Location', 'northwest', 'Box', 'off');
+        if t == 1 
+            if ~isempty(coi{1}) && ~isempty(coi{2})
+                legend(P, params.comp_type, 'Location', 'northwest', 'Box', 'off');
+            end
         end
     end
 end
