@@ -99,7 +99,7 @@ dims = [1 40];
 definput = {''};
 input = inputdlg(prompt,dlgtitle,dims,definput);
 subject_idx = str2num(input{1,1});
-clear prompt dlgtitle dims definput input
+clear prompt dlgtitle dims definput input output_vars
 fprintf('section finished.\n')
 
 %% 2) extract subject info & pre-processed variables
@@ -666,7 +666,141 @@ clear params a b c d e i data2load dataset2load data header dataset_counter ...
     visual fig_visual fig_sensory screen_size prompt dlgtitle dims definput input
 fprintf('section finished.\n')
 
-%% extract alpha measures per component
+%% 6) extract alpha measures per component
+% ----- section input -----
+params.NFFT = 1000;
+params.FOI_save = [5, 20];
+params.FOI = [7  13];
+% -------------------------
+% cycle though all subjects 
+for subject_idx = 2:length(PAFPain_data)
+    % provide update
+    fprintf('subject %d:\n', subject_idx)
+
+    % extract single-trial alpha measures
+    fprintf('processing single-trials... ')
+    for a = 1:length(PAFPain_measures(subject_idx).ICA.conditions)
+        % launch the output 
+        PAF{a} = []; CAF{a} = []; amplitude{a} = []; 
+
+        % cycle through datasets
+        for b = 1:length(PAFPain_data(subject_idx).ICA)
+            % encode component labels
+            for d = 1:size(PAFPain_data(subject_idx).ICA(b).data_unmixed, 2)
+                PAFPain_data(subject_idx).ICA(b).components{d} = sprintf('IC%d', d); 
+            end
+                    
+            % if it belongs to the condition
+            if strcmp(PAFPain_measures(subject_idx).ICA.conditions{a}, PAFPain_data(subject_idx).ICA(b).condition)
+                for c = 1:size(PAFPain_data(subject_idx).ICA(b).data_unmixed, 1)
+                    % cycle through components
+                    for d = 1:size(PAFPain_data(subject_idx).ICA(b).data_unmixed, 2)
+                        % calculate PSD
+                        [PSD.powspctrm, PSD.freq] = pwelch(squeeze(PAFPain_data(subject_idx).ICA(b).data_unmixed(c, d, 1, 1, 1, :))', ...
+                            [], [], params.NFFT, 1/PAFPain_data(subject_idx).ICA(b).header.xstep);
+
+                        % save for frequencies of interest
+                        if c == 1 && d == 1
+                            PAFPain_data(subject_idx).ICA(b).freq = PSD.freq(PSD.freq > params.FOI_save(1) & PSD.freq < params.FOI_save(2)); 
+                        end
+                        PAFPain_data(subject_idx).ICA(b).PSD(c, d, :) = PSD.powspctrm(PSD.freq > params.FOI_save(1) & PSD.freq < params.FOI_save(2));
+
+                        % crop around alpha band
+                        freq_idx = PSD.freq >= params.FOI(1) & PSD.freq <= params.FOI(2);
+                        PSD.freq = PSD.freq(freq_idx);
+                        PSD.powspctrm = PSD.powspctrm(freq_idx);
+                        
+                        % determine PAF
+                        if d == 1
+                            PAF{a}(end + 1, d) = PSD.freq(find(PSD.powspctrm == max(PSD.powspctrm)));
+                        else
+                            PAF{a}(end, d) = PSD.freq(find(PSD.powspctrm == max(PSD.powspctrm)));
+                        end
+
+                        % determine CAF
+                        if min(PSD.powspctrm) < 0
+                            if d == 1
+                                CAF{a}(end + 1, d) = sum(PSD.freq .* (PSD.powspctrm - min(PSD.powspctrm) + 1)) / sum(PSD.powspctrm - min(PSD.powspctrm) + 1);
+                            else
+                                CAF{a}(end, d) = sum(PSD.freq .* (PSD.powspctrm - min(PSD.powspctrm) + 1)) / sum(PSD.powspctrm - min(PSD.powspctrm) + 1);
+                            end
+                        else
+                            if d == 1
+                                CAF{a}(end + 1, d) = sum(PSD.freq .* PSD.powspctrm) / sum(PSD.powspctrm);
+                            else
+                                CAF{a}(end, d) = sum(PSD.freq .* PSD.powspctrm) / sum(PSD.powspctrm);
+                            end
+                        end
+
+                        % determine amplitude
+                        if d == 1
+                            amplitude{a}(end + 1, d) = max(PSD.powspctrm);  
+                        else
+                            amplitude{a}(end, d) = max(PSD.powspctrm);
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    % save to the output structure
+    PAFPain_measures(subject_idx).ICA.components = PAFPain_data(subject_idx).ICA(b).components; 
+    PAFPain_measures(subject_idx).ICA.PAF = PAF;
+    PAFPain_measures(subject_idx).ICA.CAF = CAF;
+    PAFPain_measures(subject_idx).ICA.amplitude = amplitude;
+
+    % calculate average PSD
+    fprintf('processing average PSD... ')
+    for b = 1:length(PAFPain_data(subject_idx).ICA)
+        PAFPain_data(subject_idx).ICA(b).PSD_avg = squeeze(mean(PAFPain_data(subject_idx).ICA(b).PSD, 1));
+    end
+
+    % extract average alpha measures per condition
+    PAFPain_measures(subject_idx).ICA_avg.conditions = PAFPain_measures(subject_idx).ICA.conditions;
+    PAFPain_measures(subject_idx).ICA_avg.components = PAFPain_data(subject_idx).ICA(b).components; 
+    for a = 1:length(PAFPain_measures(subject_idx).ICA.conditions)
+        % launch data array
+        data{a} = [];
+
+        % get average PSD per condition
+        for b = 1:length(PAFPain_data(subject_idx).ICA)
+            % if it belongs to the condition
+            if strcmp(PAFPain_measures(subject_idx).ICA.conditions{a}, PAFPain_data(subject_idx).ICA(b).condition) 
+                % append to data
+                data{a}(end + 1 : end + length(PAFPain_data(subject_idx).ICA(b).PSD), :, :) = PAFPain_data(subject_idx).ICA(b).PSD;
+            end
+        end
+        freq_idx = PAFPain_data(subject_idx).ICA(1).freq >= params.FOI(1) & PAFPain_data(subject_idx).ICA(1).freq <= params.FOI(2);
+        freq_avg = PAFPain_data(subject_idx).ICA(1).freq(freq_idx)';
+        data_avg{a} = squeeze(mean(data{a}, 1)); 
+        data_avg{a} = data_avg{a}(:, freq_idx);
+
+        % determine alpha measures
+        for d = 1:size(data_avg{a}, 1)
+            % PAF
+            PAFPain_measures(subject_idx).ICA_avg.PAF{a}(d) = freq_avg(data_avg{a}(d, :) == max(data_avg{a}(d, :)));
+
+            % CAF
+            if min(data_avg{a}(d, :)) < 0
+                PAFPain_measures(subject_idx).ICA_avg.CAF{a}(d) = sum(freq_avg .* (data_avg{a}(d, :) - min(data_avg{a}(d, :)) + 1)) / sum(data_avg{a}(d, :) - min(data_avg{a}(d, :)) + 1);
+            else
+                PAFPain_measures(subject_idx).ICA_avg.CAF{a}(d) = sum(freq_avg .* data_avg{a}(d, :)) / sum(data_avg{a}(d, :));
+            end
+
+            % amplitude
+            PAFPain_measures(subject_idx).ICA_avg.amplitude{a}(d) = max(data_avg{a}(d, :));
+        end
+    end
+    fprintf('\n')
+end
+fprintf('\ndone.\n')    
+
+% save and continue
+save(output_file, 'PAFPain_data', 'PAFPain_measures', '-append') 
+clear params a b c d PSD PAF CAF amplitude data freq_idx freq_avg data_avg 
+fprintf('section finished.\n')
+
 %% calculate GFP of LEPs and SEPs
 %% export to excel
 %% plot group values
