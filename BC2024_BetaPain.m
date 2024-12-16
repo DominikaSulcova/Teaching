@@ -45,11 +45,13 @@
 %                                   information
 %           - BetaPain_measures --> MATLAB structure gathering all measures
 %                                   intended for statistical analysis
-%           - BetaPain_data     --> MATLAB structure gathering all newly
-%                                   produced datasets
+%           - BetaPain_data_SXX --> MATLAB structure gathering all newly
+%                                   produced datasets for each subject
 %           - excel table with all evaluated variables
 
 %% 1) parameters - ALWAYS RUN AT THE BEGINNING OF THE SESSION
+fprintf('section 1:\n')
+
 % directories
 folder.toolbox = uigetdir(pwd, 'Choose the toolbox folder');        % MATLAB toolboxes
 folder.raw = uigetdir(pwd, 'Choose the input folder');              % raw data --> this should be the folder 'BetaPain' at the external harddrive 'PHYSIOLOGIE'
@@ -85,12 +87,14 @@ definput = {''};
 input = inputdlg(prompt,dlgtitle,dims,definput);
 subject_idx = str2num(input{1,1});
 clear prompt dlgtitle dims definput input
-fprintf('section finished.\n')
+fprintf('section 1 finished.\n')
 
 % addpath(genpath([folder.toolbox '\letswave 7']));
 % letswave
 
 %% 2) participant & session info
+fprintf('section 2:\n')
+
 % encode info
 fprintf('encoding subject & session info...\n')
 prompt = {'age:', 'male:', 'handedness:',...
@@ -127,7 +131,7 @@ BetaPain_info(subject_idx).stimulation(2).intensity = BetaPain_info(subject_idx)
 % save and continue
 save(output_file, 'BetaPain_info','-append')
 clear session_info output_vars
-fprintf('section finished.\n')
+fprintf('section 2 finished.\n')
 
 %% 3) load & pre-process EEG data
 % ----- section input -----
@@ -139,6 +143,8 @@ params.eventcode = {'TMS'};
 params.epoch = [-3.000 -0.005];
 params.downsample = 20;
 % ------------------------- 
+fprintf('section 3:\n')
+
 % cycle through sessions
 for a = 1:length(params.condition)
     % add letswave 6 to the top of search path
@@ -395,7 +401,7 @@ end
 % save and continue
 save(output_file, 'BetaPain_info','-append')
 clear params a b c d e data2import data_idx file_idx filename datanames option lwdata event_idx epoch_idx concat_idx data header
-fprintf('section finished.\n')
+fprintf('section 3 finished.\n')
 
 %% 4) visual inspection
 % ----- section input -----
@@ -405,6 +411,8 @@ params.prefix = 'dc ds ep';
 params.suffix = {'no_mastoid' 'bandpass_broad' 'visual'};
 params.bandpass = [1, 45];
 % ------------------------- 
+fprintf('section 4:\n')
+
 % update output 
 load(output_file, 'BetaPain_info')
 
@@ -467,7 +475,7 @@ save(output_file, 'BetaPain_info','-append')
 clear params a b data2load lwdata option channel_all channel_mask filename
 
 % open letswave for visual inspection
-fprintf('section finished.\nplease perform the visual inspections!\n')
+fprintf('section 4 finished.\nplease perform the visual inspection!\n\n')
 letswave
 
 %% 5) compute ICA at beta frequency
@@ -479,7 +487,9 @@ params.suffix = {'no_mastoid' 'reref' 'bandpass_beta' 'ica'};
 params.interp_chans = 4;
 params.bandpass = [13 30];
 params.ICA_comp = 25;
-% -------------------------                             
+% -------------------------
+fprintf('section 5:\n')
+
 % update output 
 load(output_file, 'BetaPain_info')
 
@@ -684,16 +694,16 @@ BetaPain_info(subject_idx).EEG.processing(end).suffix = params.suffix{4};
 BetaPain_info(subject_idx).EEG.processing(end).date = sprintf('%s', date);
 
 % update data structure
-output_vars = who('-file', sprintf('%s', output_file));
-if ismember('BetaPain_data', output_vars)
-    load(output_file, 'BetaPain_data')
-else
-    BetaPain_data = struct;
-end
 for a = 1:length(dataset)
-    BetaPain_data(subject_idx).beta(a).condition = params.condition{a};
-    BetaPain_data(subject_idx).beta(a).unmixed = dataset(a).unmixed;
+    % condition
+    statement = sprintf('BetaPain_data_%s.beta(a).condition = params.condition{a};', BetaPain_info(subject_idx).ID);
+    eval(statement)
+
+    % unmixed
+    statement = sprintf('BetaPain_data_%s.beta(a).unmixed = dataset(a).unmixed;', BetaPain_info(subject_idx).ID);
+    eval(statement)
 end
+save(output_file, sprintf('BetaPain_data_%s', BetaPain_info(subject_idx).ID), '-append')
 
 % open letswave if not already open
 fig_all = findall(0, 'Type', 'figure');
@@ -709,15 +719,17 @@ if open
 end
 
 % save and continue
-save(output_file, 'BetaPain_info', 'BetaPain_data', '-append')
+save(output_file, 'BetaPain_info', '-append')
 clear params a b c d e f i m data2load encode channel_all channel_mask lwdata option chans2interpolate chan_n chan_dist ...
     lwdataset matrix fig_all open data header output_vars
-fprintf('section finished.\n')
+fprintf('section 5 finished.\nplease select components containing sensorimotor beta activity!\n\n')
 
 %% 6) encode selected ICA components
 % ----- section input -----
 params.condition = {'pain', 'control'};
 % ------------------------- 
+fprintf('section 6:\n')
+
 % update output 
 load(output_file, 'BetaPain_info')
 
@@ -739,7 +751,7 @@ end
 % save and continue
 save(output_file, 'BetaPain_info', '-append')
 clear params a input prompt dlgtitle dims definput answer 
-fprintf('section finished.\n')
+fprintf('section 6 finished.\n')
 
 %% 7) compute PSD of ICA components
 % ----- section input -----
@@ -752,7 +764,9 @@ params.colours = [0.9216    0.1490    0.1490;
     0.0745    0.6235    1.0000;
     1.0000    0.4784    0.8000;
     0.2588    0.7216    0.0275]; 
-% -------------------------                                 
+% -------------------------   
+fprintf('section 7:\n')
+
 % ask for subject number
 if ~exist('subject_idx')
     prompt = {'subject number:'};
@@ -767,26 +781,31 @@ clear prompt dlgtitle dims definput input
 % update output 
 clear dataset
 fprintf('loading the data structure...\n')
-load(output_file, 'BetaPain_info', 'BetaPain_data')
+load(output_file, 'BetaPain_info', sprintf('BetaPain_data_%s', BetaPain_info(subject_idx).ID))
    
-% add fieldtrip to the top of search path
-addpath(genpath([folder.toolbox '\fieldtrip']));
+% % add fieldtrip to the top of search path
+% addpath(genpath([folder.toolbox '\fieldtrip']));
     
 % cycle through sessions
 fprintf('computing power spectrum density: \n')
 for c = 1:length(params.condition)
     fprintf('%s session: \n', params.condition{c})
 
-    % cycle through timepoints
-    for t = 1:length(params.timepoint)
-        fprintf('%s - ', params.timepoint{t})
-
-        % select the unmixed data and the header
-        data = squeeze(BetaPain_data(subject_idx).beta(c).unmixed(t).data);
-        header = BetaPain_data(subject_idx).beta(c).unmixed(t).header;
-
-        % calculate PSD of all ICA components 
-        if strcmp(BetaPain_data(subject_idx).beta(c).condition, params.condition{c})                
+    % check for the condition in data
+    statement = sprintf('condition = BetaPain_data_%s.beta(c).condition;', BetaPain_info(subject_idx).ID);
+    eval(statement)   
+    if strcmp(condition, params.condition{c})      
+        
+        % cycle through timepoints
+        for t = 1:length(params.timepoint)
+            fprintf('%s - ', params.timepoint{t})
+    
+            % select the unmixed data and the header
+            statement = sprintf('data = BetaPain_data_%s.beta(c).unmixed(t).data;', BetaPain_info(subject_idx).ID);
+            eval(statement)        
+            statement = sprintf('header = BetaPain_data_%s.beta(c).unmixed(t).header;', BetaPain_info(subject_idx).ID);
+            eval(statement) 
+             
             % calculate PSD at individual trials
             PSD = struct;
             for e = 1:size(data, 1)
@@ -826,39 +845,47 @@ for c = 1:length(params.condition)
                 PSD(e).pwelch.freq(PSD(e).pwelch.freq < 1 | PSD(e).pwelch.freq > 50) = [];
             end
 
-            % % append to the data structure
-            % BetaPain_data(subject_idx).beta(c).psd(t).params.method = PSD(1).original.cfg.method;
-            % BetaPain_data(subject_idx).beta(c).psd(t).params.limits = PSD(1).original.cfg.foilim;
-            % BetaPain_data(subject_idx).beta(c).psd(t).params.pad = PSD(1).original.cfg.pad;
-            % BetaPain_data(subject_idx).beta(c).psd(t).params.label = PSD(1).original.label';
-            % BetaPain_data(subject_idx).beta(c).psd(t).params.freq = PSD(1).original.freq;
-            BetaPain_data(subject_idx).beta(c).psd_pwelch(t).params.method = 'pwelch';
-            BetaPain_data(subject_idx).beta(c).psd_pwelch(t).params.limits = params.foi_limits;
-            BetaPain_data(subject_idx).beta(c).psd_pwelch(t).params.label = BetaPain_info(subject_idx).EEG.processing(end).params.labels;
-            BetaPain_data(subject_idx).beta(c).psd_pwelch(t).params.freq = PSD(1).pwelch.freq;
+            % % create structures
+            % psd_irasa(t).params.method = PSD(1).original.cfg.method;
+            % psd_irasa(t).params.limits = PSD(1).original.cfg.foilim;
+            % psd_irasa(t).params.pad = PSD(1).original.cfg.pad;
+            % psd_irasa(t).params.label = PSD(1).original.label';
+            % psd_irasa.params.freq = PSD(1).original.freq;
+            psd_pwelch(t).params.method = 'pwelch';
+            psd_pwelch(t).params.limits = params.foi_limits;
+            psd_pwelch(t).params.label = BetaPain_info(subject_idx).EEG.processing(end).params.labels;
+            psd_pwelch(t).params.freq = PSD(1).pwelch.freq;
             for e = 1:length(PSD)
-                % BetaPain_data(subject_idx).beta(c).psd(t).original(e, :, :) = PSD(e).original.powspctrm;
-                % BetaPain_data(subject_idx).beta(c).psd(t).fractal(e, :, :) = PSD(e).fractal.powspctrm;
-                % BetaPain_data(subject_idx).beta(c).psd(t).oscillatory(e, :, :) = PSD(e).oscillatory.powspctrm;
-                BetaPain_data(subject_idx).beta(c).psd_pwelch(t).original(e, :, :) = PSD(e).pwelch.powspctrm;
+                % psd_irasa(t).original(e, :, :) = PSD(e).original.powspctrm;
+                % psd_irasa(t).fractal(e, :, :) = PSD(e).fractal.powspctrm;
+                % psd_irasa(t).oscillatory(e, :, :) = PSD(e).oscillatory.powspctrm;
+                psd_pwelch(t).original(e, :, :) = PSD(e).pwelch.powspctrm;
             end
                 
-            % compute average PSD 
-            % BetaPain_data(subject_idx).beta(c).psd_avg(t).original.mean = squeeze(mean(BetaPain_data(subject_idx).beta(c).psd(t).original, 1));
-            % BetaPain_data(subject_idx).beta(c).psd_avg(t).original.std = squeeze(std(BetaPain_data(subject_idx).beta(c).psd(t).original, 0, 1));
-            % BetaPain_data(subject_idx).beta(c).psd_avg(t).fractal.mean = squeeze(mean(BetaPain_data(subject_idx).beta(c).psd(t).fractal, 1));
-            % BetaPain_data(subject_idx).beta(c).psd_avg(t).fractal.std = squeeze(std(BetaPain_data(subject_idx).beta(c).psd(t).fractal, 0, 1));
-            % BetaPain_data(subject_idx).beta(c).psd_avg(t).oscillatory.mean = squeeze(mean(BetaPain_data(subject_idx).beta(c).psd(t).oscillatory, 1));
-            % BetaPain_data(subject_idx).beta(c).psd_avg(t).oscillatory.std = squeeze(std(BetaPain_data(subject_idx).beta(c).psd(t).oscillatory, 0, 1));
-            BetaPain_data(subject_idx).beta(c).psd_avg(t).pwelch.mean = squeeze(mean(BetaPain_data(subject_idx).beta(c).psd_pwelch(t).original, 1));
-            BetaPain_data(subject_idx).beta(c).psd_avg(t).pwelch.std = squeeze(std(BetaPain_data(subject_idx).beta(c).psd_pwelch(t).original, 0, 1));
-
-            % save data structure            
-            save(output_file, 'BetaPain_data', '-append')
-        else
-            error('ERROR: Condition in BetaPain_data does not match condition in section parameters!')
+            % % compute average PSD 
+            % psd_avg(t).original.mean = squeeze(mean(psd_irasa(t).original, 1));
+            % psd_avg(t).original.std = squeeze(std(psd_irasa(t).original, 0, 1));
+            % psd_avg(t).fractal.mean = squeeze(mean(psd_irasa(t).fractal, 1));
+            % psd_avg(t).fractal.std = squeeze(std(psd_irasa(t).fractal, 0, 1));
+            % psd_avg(t).oscillatory.mean = squeeze(mean(psd_irasa(t).oscillatory, 1));
+            % psd_avg(t).oscillatory.std = squeeze(std(psd_irasa(t).oscillatory, 0, 1));
+            psd_avg(t).pwelch.mean = squeeze(mean(psd_pwelch(t).original, 1));
+            psd_avg(t).pwelch.std = squeeze(std(psd_pwelch(t).original, 0, 1));
         end
+    else
+        error('ERROR: Condition in BetaPain_data does not match condition in section parameters!')
     end
+
+    % % append to the data structure and save
+    % statement = sprintf('BetaPain_data_%s.beta(c).psd_irasa = psd_irasa;', BetaPain_info(subject_idx).ID);
+    % eval(statement)
+    statement = sprintf('BetaPain_data_%s.beta(c).psd_pwelch = psd_pwelch;', BetaPain_info(subject_idx).ID);
+    eval(statement)
+    statement = sprintf('BetaPain_data_%s.beta(c).psd_avg = psd_avg;', BetaPain_info(subject_idx).ID);
+    eval(statement)
+
+    % save data structure 
+    save(output_file, sprintf('BetaPain_data_%s', BetaPain_info(subject_idx).ID), '-append')
     fprintf('done.\n')
 end
 fprintf('\n')
@@ -866,12 +893,16 @@ fprintf('\n')
 % add letswave 6 to the top of search path
 addpath(genpath([folder.toolbox '\letswave 6']));
 
+% select data
+statement = sprintf('beta = BetaPain_data_%s.beta;', BetaPain_info(subject_idx).ID);
+eval(statement)
+
 % set plotting parameters
 switch params.method
-    case 'pwelch'
-        visual.x = BetaPain_data(subject_idx).beta(1).psd_pwelch(1).params.freq';
+    case 'pwelch' 
+        visual.x = beta(1).psd_pwelch(1).params.freq';
     case 'irasa'
-        visual.x = BetaPain_data(subject_idx).beta(1).psd(1).params.freq';
+        visual.x = beta(1).psd(1).params.freq';
 end
 y_limits = [];
 
@@ -883,7 +914,7 @@ for c = 1:length(params.condition)
     % select component of interest
     coi{1} = BetaPain_info(subject_idx).EEG.processing(end).params.selected(c).radial;
     coi{2} = BetaPain_info(subject_idx).EEG.processing(end).params.selected(c).tangential;
-
+    
     % plot topoplot of the radial component
     if ~isempty(coi{1})
         subplot(4, 15, (c-1)*2*15 + 1)
@@ -911,7 +942,7 @@ for c = 1:length(params.condition)
         axis off;         
         text(0.5, 0.5, {'tangential component', 'not identified'}, 'HorizontalAlignment', 'center', 'FontSize', 10);
     end
-
+    
     % cycle through timepoints
     for t = 1:length(params.timepoint)
         % plot the psd
@@ -921,11 +952,11 @@ for c = 1:length(params.condition)
                 % select data to plot
                 switch params.method
                     case 'pwelch'
-                        visual.y = BetaPain_data(subject_idx).beta(c).psd_avg(t).pwelch.mean(coi{a}, :);
-                        visual.sd = BetaPain_data(subject_idx).beta(c).psd_avg(t).pwelch.std(coi{a}, :);
+                        visual.y = beta(c).psd_avg(t).pwelch.mean(coi{a}, :);
+                        visual.sd = beta(c).psd_avg(t).pwelch.std(coi{a}, :);
                     case 'irasa'
-                        visual.y = BetaPain_data(subject_idx).beta(c).psd_avg(t).oscillatory.mean(coi{a}, :);
-                        visual.sd = BetaPain_data(subject_idx).beta(c).psd_avg(t).oscillatory.std(coi{a}, :);
+                        visual.y = beta(c).psd_avg(t).oscillatory.mean(coi{a}, :);
+                        visual.sd = beta(c).psd_avg(t).oscillatory.std(coi{a}, :);
                 end
     
                 % % shade SD
@@ -934,7 +965,7 @@ for c = 1:length(params.condition)
                 % hold on
     
                 % plot mean
-                P(a) = plot(visual.x, visual.y, Color = params.colours((c-1)*2 + a, :), LineWidth = 2.2);
+                P(a) = plot(visual.x, visual.y, 'Color', params.colours((c-1)*2 + a, :), 'LineWidth', 2.2);
                 hold on
 
                 % indicate labels
@@ -943,6 +974,11 @@ for c = 1:length(params.condition)
                 % indicate labels
                 comp_idx(a) = false;
             end
+        end
+        
+        % add figure title
+        if c == 1 && t == 3
+            title(sprintf('subject %d: power of beta oscillations of selected components', subject_idx))        
         end
 
         % set figure limits
@@ -974,11 +1010,11 @@ for c = 1:length(params.condition)
 end
 
 % set scaling across plots
-sgtitle(sprintf('subject %d: power of beta oscillations of selected components', subject_idx))
+% sgtitle(sprintf('subject %d: power of beta oscillations of selected components', subject_idx))
 for c = 1:length(params.condition)
     for t = 1:length(params.timepoint)
         subplot(4, 15, (c-1)*2*15 + [(t-1)*2 + 2, (t-1)*2 + 3, 15 + (t-1)*2 + 2, 15 + (t-1)*2 + 3])         
-        ylim([0 max(y_limits, [], 'all')])            
+        ylim([0 max(max(y_limits(1,:)), max(y_limits(2,:)))])            
         
         % % plot frequency limits 
         % hold on
@@ -996,8 +1032,8 @@ answer = questdlg('Do you want to continue with next subject?', 'Continue?', 'YE
 if strcmp(answer, 'YES')
     subject_idx = subject_idx + 1;
 end
-clear params a c e f s t data data_trial header PSD cfg coi visual answer y_limits fig S P L 
-fprintf('section finished.\n')
+clear params a c e f s t condition data data_trial header PSD psd_irasa psd_pwelch psd_avg cfg coi visual answer y_limits fig S P L 
+fprintf('section 7 finished.\n')
 
 %% functions
 function dataset = reload_dataset(data2load, conditions, fieldname)
