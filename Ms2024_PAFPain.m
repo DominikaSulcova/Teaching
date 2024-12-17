@@ -8,7 +8,8 @@
 % project:  The peak latency of alpha oscillation have been previously
 %           linked to individual pain sensitivity. However, there are many
 %           sources of alpha activity in the brain and it is likely that
-%           only some of these are related to pain processing. This study 
+%    
+%       only some of these are related to pain processing. This study 
 %           aims to investigate, whether sensorimotor alpha can predict 
 %           laser-evoked brain responses (LEPs) and/or the magnitude of 
 %           elicited pain. We hypothesize that a relationship between PAF 
@@ -35,6 +36,9 @@
 %           - loads and plots full-spectrum PSD
 %           - extracts alpha measures per channel, plots topo distributions
 %           - computes ICA at alpha frequency and plots all components
+%           - lets user encode ICs according to their origin
+%           - extracts alpha measures per component, computes averages
+%           - calculates GFP of average LEPs and SEPs 
 %           
 % output:   - PAFPain_info      --> MATLAB structure gathering dataset
 %                                   information
@@ -45,6 +49,8 @@
 %           - excel table with all evaluated variables
 
 %% 1) pararms - ALWAYS RUN AT THE BEGINNING OF THE SESSION
+fprintf('section 1: script parameters\n')
+
 % directories
 folder.toolbox = uigetdir(pwd, 'Choose the toolbox folder');    % MATLAB toolboxes
 folder.data = uigetdir(pwd, 'Coose the input folder');          % processed EEG data 
@@ -100,12 +106,14 @@ definput = {''};
 input = inputdlg(prompt,dlgtitle,dims,definput);
 subject_idx = str2num(input{1,1});
 clear prompt dlgtitle dims definput input output_vars
-fprintf('section finished.\n')
+fprintf('section 1 finished.\n')
 
 %% 2) extract subject info & pre-processed variables
 % ----- section input -----
 params.peak = {'N1' 'N2' 'P2'};
 % ------------------------- 
+fprintf('section 2: load existing variables\n')
+
 % load NLEP_info 
 if exist('NLEP_info') ~= 1
     load('NLEP_output.mat', 'NLEP_info') 
@@ -177,7 +185,7 @@ fprintf('done.\n')
 % save and continue
 save(output_file, 'PAFPain_info', 'PAFPain_measures', '-append')
 clear params c d p output_vars statement
-fprintf('section finished.\n')
+fprintf('section 2 finished.\n')
 
 %% 3) load and plot PSD
 % ----- section input -----
@@ -186,7 +194,9 @@ params.colours = [0.9216    0.1490    0.1490;
     0.0745    0.6235    1.0000;
     1.0000    0.4784    0.8000;
     0.2588    0.7216    0.0275]; 
-% ------------------------- 
+% -------------------------
+fprintf('section 3: load and plot PSD\n')
+
 % load NLEP_data
 if exist('data_RSEEG') ~= 1
     output_vars = who('-file', 'NLEP_output.mat');
@@ -292,13 +302,15 @@ for c = 1:length(params.conditions)
 end
 save(output_file, 'PAFPain_data', '-append')
 clear params a b c d output_vars data visual fig screen_size data_idx data_codnition
-fprintf('section finished.\n')
+fprintf('section 3 finished.\n')
 
 %% 4) extract alpha measures per channel 
 % ----- section input -----
 params.FOI = [7  15];
 params.measures = {'PAF' 'CAF' 'amplitude'};
 % -------------------------
+fprintf('section 4: extract alpha per channel\n')
+
 % determine frequencies of interest
 freq_idx = data_RSEEG(subject_idx).freq >= params.FOI(1) & data_RSEEG(subject_idx).freq <= params.FOI(2);
 freq_psd = data_RSEEG(subject_idx).freq(freq_idx);
@@ -403,7 +415,7 @@ save(output_file, 'PAFPain_measures', '-append')
 clear params a b c d freq_idx freq_psd psd_trial ...
     PAF PAF_conditions CAF CAF_plot CAF_conditions amplitude amplitude_plot amplitude_conditions ...
     fig_amplitude fig_CAF labels_conditions 
-fprintf('section finished.\n')
+fprintf('section 4 finished.\n')
 
 %% 5) compute ICA at alpha frequency
 % ----- section input -----
@@ -412,6 +424,8 @@ params.suffix = {'alpha' 'ica'};
 params.bandpass = [7 13];
 params.ICA_comp = 8;
 % ------------------------- 
+fprintf('section 5: compute ICA at alpha frequency\n')
+
 % add letswave 7 to the top of search path
 addpath(genpath([folder.toolbox '\letswave 7']));
 
@@ -460,7 +474,7 @@ if length(data2load) == length(data_RSEEG(subject_idx).dataset)*2
         end
     end
 else
-    error('ERROR: Wrong number of datasets (%d) found in the directory!', length(data2load))
+    error('ERROR: Wrong number of datasets (%d) found in the directory!', length(data2load)/2)
 end
 fprintf('done.\n\n')
 
@@ -634,14 +648,17 @@ figure_counter = figure_counter + 1;
 
 % save the measures structure 
 save(output_file, 'PAFPain_measures', '-append')
+fprintf('section 5 finished.\n')
 
-% categorize components
+%% 6) categorize components
+fprintf('section 6: categorize ICA components\n')
+
+% ask for input
 prompt = {'visual ICs:' 'bilateral sensorimotor ICs:' sprintf('%s ICs:', params.conditions{3}) sprintf('%s ICs:', params.conditions{4})};
 dlgtitle = 'categorize ICA components';
 dims = [1 50];
 definput = {'' '' '' ''};
 input = inputdlg(prompt,dlgtitle,dims,definput);
-
 replace(params.conditions{3}, ' ', '_')
 
 % encode to the info structure and save
@@ -664,16 +681,18 @@ end
 clear params a b c d e i data2load dataset2load data header dataset_counter ...
     lwdata option lwdataset fileds2remove matrix data_conditions ...
     visual fig_visual fig_sensory screen_size prompt dlgtitle dims definput input
-fprintf('section finished.\n')
+fprintf('section 6 finished.\n')
 
-%% 6) extract alpha measures per component
+%% 7) extract alpha measures per component
 % ----- section input -----
 params.NFFT = 1000;
 params.FOI_save = [5, 20];
 params.FOI = [7  13];
 % -------------------------
+fprintf('section 7: extract alpha per component\n')
+
 % cycle though all subjects 
-for subject_idx = 2:length(PAFPain_data)
+for subject_idx = 1:length(PAFPain_data)
     % provide update
     fprintf('subject %d:\n', subject_idx)
 
@@ -798,12 +817,214 @@ fprintf('\ndone.\n')
 
 % save and continue
 save(output_file, 'PAFPain_data', 'PAFPain_measures', '-append') 
-clear params a b c d PSD PAF CAF amplitude data freq_idx freq_avg data_avg 
-fprintf('section finished.\n')
+clear params subject_idx a b c d PSD PAF CAF amplitude data freq_idx freq_avg data_avg 
+fprintf('section 7 finished.\n')
 
-%% calculate GFP of LEPs and SEPs
-%% export to excel
-%% plot group values
+%% 8) calculate GFP of LEPs and SEPs
+% ----- section input -----
+params.prefix = 'icfilt ica_all dc ep reref ds notch bandpass dc';
+params.ERP = {'LEP' 'SEP'};
+params.block = {'b1' 'b2'};
+params.TOI = {[0 0.7], [0 0.4]};
+params.colours = [0.8196    0.1961    0.3098; 
+    0.0941    0.5059    0.7804;
+    0.9882    0.9098    0.9098];
+% -------------------------
+fprintf('section 8: calculate GFP of evoked potentials\n')
+
+% cycle though all subjects 
+for subject_idx = 26:length(PAFPain_data)
+    fprintf('subject %d:\n', subject_idx)
+
+    % determine conditions
+    for c = 1:2
+        params.conditions{c} = [PAFPain_info(subject_idx).area{c}  ' ' PAFPain_info(subject_idx).side{c}];
+    end
+
+    % launch the output figure
+    screen_size = get(0, 'ScreenSize');
+    fig = figure(figure_counter);
+    set(fig, 'Position', [screen_size(3)/4, screen_size(4)/4, screen_size(3) / 1.6, screen_size(4) / 2])
+    
+    % cycle through ERPs
+    PAFPain_data(subject_idx).ERP = [];
+    for a = 1:length(params.ERP)
+        fprintf('processing %ss... ', params.ERP{a})
+
+        % load all datasets
+        dataset_blocks = struct([]);
+        data2load = dir(sprintf('%s\\*%s\\%s*%s*', folder.data, PAFPain_info(subject_idx).ID, params.prefix, params.ERP{a}));
+        if length(data2load) == length(params.conditions) * length(params.block) * 2
+            for d = 1:length(data2load)
+                if contains(data2load(d).name, 'lw6')
+                    % load the header 
+                    load(sprintf('%s\\%s', data2load(d).folder, data2load(d).name), '-mat')
+
+                    % determine condition
+                    for c = 1:length(params.conditions)
+                        if contains(header.name, params.conditions{c})
+                            dataset_blocks(end + 1).condition = params.conditions{c};
+                        end
+                    end
+
+                    % append to the dataset
+                    dataset_blocks(end).header = header;
+
+                elseif contains(data2load(d).name, 'mat')
+                    % load the data
+                    load(sprintf('%s\\%s', data2load(d).folder, data2load(d).name))
+
+                    % append to the dataset
+                    if contains(data2load(d).name,  dataset_blocks(end).condition)
+                        dataset_blocks(end).data = data;
+                    else
+                        error('ERROR: header and data condition do not match!')
+                    end
+                end
+                
+            end
+        else
+            error('ERROR: Wrong number of datasets (%d) found in the directory!', length(data2load)/2)
+        end
+
+        % squeeze and concatecate the data
+        dataset = struct([]);
+        for c = 1:length(params.conditions)
+            % encode condition
+            dataset(c).condition = params.conditions{c};
+
+            % loop through the datasets
+            dataset(c).data = [];
+            for d = 1:length(dataset_blocks)
+                % if the dataset belongs to the condition
+                if strcmp(params.conditions{c}, dataset_blocks(d).condition)
+                    % fill in the header (will keep the second one)
+                    dataset(c).header = dataset_blocks(d).header;
+
+                    % squeeze and append the data
+                    dataset(c).data = cat(1, dataset(c).data, squeeze(dataset_blocks(d).data));
+                end
+            end
+
+            % correct datasize in the header
+            dataset(c).header.datasize = size(dataset(c).data);
+        end
+
+        % calculate the mean, SD and GFP, append to the data structure
+        for d = 1:length(dataset)
+            PAFPain_data(subject_idx).ERP(end+1).stimulus = params.ERP{a};
+            PAFPain_data(subject_idx).ERP(end).condition = dataset(d).condition;
+            PAFPain_data(subject_idx).ERP(end).header = dataset(d).header;
+            PAFPain_data(subject_idx).ERP(end).data_mean = squeeze(mean(dataset(d).data, 1));
+            PAFPain_data(subject_idx).ERP(end).data_SD = squeeze(std(dataset(d).data, 0, 1));
+            PAFPain_data(subject_idx).ERP(end).GFP = std(PAFPain_data(subject_idx).ERP(end).data_mean, 1);
+            dataset(d).GFP = std(PAFPain_data(subject_idx).ERP(end).data_mean, 1);
+        end
+
+        % append conditions to the measures
+        statement = sprintf('PAFPain_measures(subject_idx).%s_GFP.conditions = params.conditions;', params.ERP{a});
+        eval(statement)
+
+        % calculate GFP over the TOI
+        x = (1:dataset(1).header.datasize(end)) * dataset(1).header.xstep + dataset(1).header.xstart;
+        toi_idx = x > params.TOI{a}(1) & x <= params.TOI{a}(2);
+        for d = 1:length(dataset)
+            dataset(d).GFP_mean = mean(dataset(d).GFP(toi_idx));
+        end
+
+        % append to the measures structures      
+        statement = sprintf('PAFPain_measures(subject_idx).%s_GFP.TOI = params.TOI{a};', params.ERP{a});
+        eval(statement)
+        for d = 1:length(dataset)
+            statement = sprintf('PAFPain_measures(subject_idx).%s_GFP.GFP(d) = dataset(d).GFP_mean;', params.ERP{a});
+            eval(statement)
+        end
+
+        % plot GFP
+        subplot(1, 2, a)
+        for d = 1:length(dataset)
+            P(d) = plot(x, dataset(d).GFP, 'Color', params.colours(d, :), 'LineWidth', 2.5);
+            hold on
+        end
+
+        % plot trigger line
+        y_lims = get(gca, 'YLim');
+        line([0, 0], [y_lims(1) + 0.03*diff(y_lims), y_lims(2) - 0.03*diff(y_lims)], ...
+            'Color', [0, 0, 0], 'LineWidth', 2, 'LineStyle', '--');
+
+        % plot TOI
+        T = rectangle('Position', [params.TOI{a}(1), y_lims(1) + 0.03*diff(y_lims), diff(params.TOI{a}), diff(y_lims) - 0.06*diff(y_lims)], ...
+            'FaceColor', params.colours(3, :), 'EdgeColor', 'none');
+        uistack(T, 'bottom');
+
+        % adjust parameters
+        xlabel('time (s)')
+        ylabel('amplitude (µV)')
+        set(gca, 'FontSize', 14)
+        set(gca, 'Layer', 'Top')
+        if a == 1
+            title('laser-evoked potentials')
+        elseif a == 2
+            title('somatosensory-evoked potentials')
+        end
+    end
+    fprintf('done.\n')
+
+    % finalize the figure and save
+    figure(fig)
+    lgd = legend(P, params.conditions);
+    saveas(fig, sprintf('%s\\figures\\%s_ERPs.png', folder.output, PAFPain_info(subject_idx).ID))
+    figure_counter = figure_counter + 1;
+end
+
+% save and continue
+save(output_file, 'PAFPain_data', 'PAFPain_measures', '-append') 
+clear params subject_idx a c d dataset_blocks dataset data2load header data statement x toi_idx y_lims P T screen_size lgd fig 
+fprintf('section 8 finished.\n')
+
+%% 9) export to excel
+% ----- section input -----
+% -------------------------
+fprintf('section 9: export variables to Excel\n')
+
+% export
+row_counter = 1;
+for subject_idx = 1:length(PAFPain_data)
+    % determine conditions
+    for c = 1:2
+        params.conditions{c} = [PAFPain_info(subject_idx).area{c}  ' ' PAFPain_info(subject_idx).side{c}];
+    end
+
+    for c = 1:length(condition)  
+        for t = 1:length(time)
+            for k = 1:length(CAPSTEP_TEP_default.peaks) 
+                %fill in the table
+                CAPSTEP_TEP_values.subject(row_counter) = p;
+                CAPSTEP_TEP_values.condition(row_counter) = condition(c);
+                CAPSTEP_TEP_values.time(row_counter) = time(t);
+                CAPSTEP_TEP_values.peak(row_counter) = CAPSTEP_TEP_default.peaks(k);
+                CAPSTEP_TEP_values.amplitude_peak(row_counter) = CAPSTEP_TEP_peaks.amplitude_peak(c, t, p, k);
+                CAPSTEP_TEP_values.amplitude_mean(row_counter) = CAPSTEP_TEP_peaks.amplitude_mean(c, t, p, k);
+                CAPSTEP_TEP_values.latency(row_counter) = CAPSTEP_TEP_peaks.latency(c, t, p, k);
+
+                % update the counter
+                row_counter = row_counter + 1;
+            end
+        end
+    end
+end
+writetable(CAPSTEP_TEP_values, [folder_results '\CAPSTEP_TEP_values.csv'])
+
+clear params subject_idx c
+
+fprintf('section 9 finished.\n')
+
+%% 10) plot average group values
+% ----- section input -----
+% -------------------------
+fprintf('section 10: plot average group values\n')
+fprintf('section 10 finished.\n')
+
 %% functions
 function plot_PSD(visual, varargin)
 % =========================================================================
