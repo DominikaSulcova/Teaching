@@ -984,39 +984,140 @@ fprintf('section 8 finished.\n')
 
 %% 9) export to excel
 % ----- section input -----
+params.components = 8;
+params.ERP = {'LEP' 'SEP'};
 % -------------------------
 fprintf('section 9: export variables to Excel\n')
 
-% export
+% initialize the output table
+table_export = table;
+
+% write in extracted variables 
 row_counter = 1;
+fprintf('extracting variables: ')
 for subject_idx = 1:length(PAFPain_data)
+    fprintf('. ')
+
     % determine conditions
     for c = 1:2
         params.conditions{c} = [PAFPain_info(subject_idx).area{c}  ' ' PAFPain_info(subject_idx).side{c}];
     end
 
-    for c = 1:length(condition)  
-        for t = 1:length(time)
-            for k = 1:length(CAPSTEP_TEP_default.peaks) 
-                %fill in the table
-                CAPSTEP_TEP_values.subject(row_counter) = p;
-                CAPSTEP_TEP_values.condition(row_counter) = condition(c);
-                CAPSTEP_TEP_values.time(row_counter) = time(t);
-                CAPSTEP_TEP_values.peak(row_counter) = CAPSTEP_TEP_default.peaks(k);
-                CAPSTEP_TEP_values.amplitude_peak(row_counter) = CAPSTEP_TEP_peaks.amplitude_peak(c, t, p, k);
-                CAPSTEP_TEP_values.amplitude_mean(row_counter) = CAPSTEP_TEP_peaks.amplitude_mean(c, t, p, k);
-                CAPSTEP_TEP_values.latency(row_counter) = CAPSTEP_TEP_peaks.latency(c, t, p, k);
+    % cycle through conditions
+    for c = 1:length(params.conditions)  
+        % subject & session info
+        table_export.subject(row_counter) = subject_idx;
+        table_export.ID(row_counter) = {PAFPain_info(subject_idx).ID};
+        table_export.age(row_counter) = PAFPain_info(subject_idx).age;
+        table_export.male(row_counter) = PAFPain_info(subject_idx).male;
+        table_export.handedness(row_counter) = PAFPain_info(subject_idx).handedness;
+        table_export.area(row_counter) = PAFPain_info(subject_idx).area(c);
+        table_export.side(row_counter) = PAFPain_info(subject_idx).side(c);
 
-                % update the counter
-                row_counter = row_counter + 1;
+        % averaege pain ratings
+        if strcmp(PAFPain_measures(subject_idx).pain.conditions{c}, params.conditions{c})
+            table_export.pain(row_counter) = round(mean(PAFPain_measures(subject_idx).pain.ratings{c}), 2);
+        else
+            error('ERROR: in subject %d, the pain rating conditions do not match!', subject_idx)
+        end
+
+        % average GFP of ERPs
+        for a = 1:length(params.ERP)
+            % identify the data
+            statement = sprintf('data.ERP = PAFPain_measures(subject_idx).%s_GFP;', params.ERP{a});
+            eval(statement)
+
+            % fill in the table
+            if ~isempty(data.ERP)
+                if strcmp(data.ERP.conditions{c}, params.conditions{c})                
+                    statement = sprintf('table_export.%s(row_counter) = round(data.ERP.GFP(c), 2);', params.ERP{a});
+                    eval(statement)
+                else
+                    error('ERROR: in subject %d, the %s conditions do not match!', subject_idx, params.ERP{a})
+                end
+            else
             end
         end
+
+        % chosen component - visual 
+        for b = 1:length(PAFPain_info(subject_idx).ICA(3).params.visual)
+            if b == 1
+                data.visual = num2str(PAFPain_info(subject_idx).ICA(3).params.visual(b));
+            else
+                data.visual = [data.visual ',' num2str(PAFPain_info(subject_idx).ICA(3).params.visual(b))];
+            end
+        end
+        table_export.ICA_visual(row_counter) = {data.visual};
+
+        % chosen component - sensorimotor 
+        statement = sprintf('data.sm = PAFPain_info(subject_idx).ICA(3).params.sm_%s_%s;', ...
+            PAFPain_info(subject_idx).area{c}, PAFPain_info(subject_idx).side{c});
+        eval(statement)
+        for b = 1:length(data.sm)
+            if b == 1
+                data.sensorimotor = num2str(data.sm(b));
+            else
+                data.sensorimotor = [data.sensorimotor ',' num2str(data.sm(b))];
+            end
+        end
+        table_export.ICA_sensorimotor(row_counter) = {data.sensorimotor};
+
+        % chosen component - sensorimotor bilateral 
+        for b = 1:length(PAFPain_info(subject_idx).ICA(3).params.sm_bilateral)
+            if b == 1
+                data.sm_bilateral = num2str(PAFPain_info(subject_idx).ICA(3).params.sm_bilateral(b));
+            else
+                data.sm_bilateral = [data.sm_bilateral ',' num2str(PAFPain_info(subject_idx).ICA(3).params.sm_bilateral(b))];
+            end
+        end
+        table_export.ICA_bilateral(row_counter) = {data.sm_bilateral};
+
+        % peak alpha frequency
+        if strcmp(PAFPain_measures(subject_idx).ICA_avg.conditions{2 + c}, params.conditions{c})
+            % PAF
+            for i = 1:params.components
+                if i <= length(PAFPain_measures(subject_idx).ICA_avg.components)  
+                    % PAF
+                    statement = sprintf('table_export.PAF_%s(row_counter) = round(PAFPain_measures(subject_idx).ICA_avg.PAF{2 + c}(i), 2);', ...
+                        PAFPain_measures(subject_idx).ICA_avg.components{i});
+                    eval(statement)  
+
+                else
+                    % fill in NaN
+                    statement = sprintf('table_export.PAF_IC%d(row_counter) = NaN;', i);
+                    eval(statement)   
+                end
+            end
+
+            % CAF
+            for i = 1:params.components
+                if i <= length(PAFPain_measures(subject_idx).ICA_avg.components)  
+                    % CAF
+                    statement = sprintf('table_export.CAF_%s(row_counter) = round(PAFPain_measures(subject_idx).ICA_avg.CAF{2 + c}(i), 2);', ...
+                        PAFPain_measures(subject_idx).ICA_avg.components{i});
+                    eval(statement) 
+
+                else
+                    % fill in NaN
+                    statement = sprintf('table_export.CAF_IC%d(row_counter) = NaN;', i);
+                    eval(statement)     
+                end
+            end
+        else
+            error('ERROR: in subject %d, the ICA conditions do not match!', subject_idx)
+        end
+
+        % update the counter
+        row_counter = row_counter + 1;
     end
 end
-writetable(CAPSTEP_TEP_values, [folder_results '\CAPSTEP_TEP_values.csv'])
+fprintf('done.\n')
 
-clear params subject_idx c
+% save as an excel file
+fprintf('exporting ...\n')
+writetable(table_export, sprintf('%s\\%s_data_%s.xlsx', folder.output, study, date))
 
+clear params subject_idx row_counter a b c i statement data
 fprintf('section 9 finished.\n')
 
 %% 10) plot average group values
