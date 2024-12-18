@@ -204,6 +204,41 @@ for f = 1:length(fields)
 end
 fprintf('done.\n\n')
 clear d e f fields statement subset subject_ID export_name segment_name export_line fileID data
-
-
 clear params 
+
+%% helper lines
+% ----- section input -----
+params.subjects = [1	2	4	7	9	10	11	14	15	16	17	18	19	22	23	24	25	26	27	28	29	30	31	32	33	34	35	43	44	45];
+params.side = {'right' 'right' 'right' 'left' 'right' 'left' 'left' 'right' 'left' 'left' ...
+    'right' 'left' 'left' 'right' 'left' 'left' 'left' 'left' 'right' 'left' ...
+    'left' 'right' 'right' 'left' 'right' 'right' 'right' 'left' 'left' 'right'};
+% ------------------------- 
+% load NLEP info
+load('NLEP_output.mat', 'NLEP_info')
+
+% check for the side of stimulation
+subject = 45;
+side = params.side(find(params.subjects == subject));
+fprintf('subject %d: %s side\n', subject, side{1})
+
+% check for age and sex
+for a = 8:length(params.subjects)
+    % print data
+    age = NLEP_info.single_subject(params.subjects(a)).age;
+    if NLEP_info.single_subject(params.subjects(a)).male
+        sex = 'M';
+    else
+        sex = 'F';
+    end
+    fprintf('subject %d:\n%d\n%s\n', params.subjects(a), age, sex)
+
+    % wait for enter to continue
+    ok = 0; 
+    while ok == 0    
+        key = input('Press ENTER to continue', 's');
+        if isempty(key) 
+            ok = 1;  
+        end
+    end    
+end
+clear side params NLEP_info a age sex ok key  
