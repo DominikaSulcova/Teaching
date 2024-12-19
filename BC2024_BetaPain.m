@@ -50,7 +50,7 @@
 %           - excel table with all evaluated variables
 
 %% 1) parameters - ALWAYS RUN AT THE BEGINNING OF THE SESSION
-fprintf('section 1:\n')
+fprintf('section 1: parameters\n')
 
 % directories
 folder.toolbox = uigetdir(pwd, 'Choose the toolbox folder');        % MATLAB toolboxes
@@ -67,7 +67,7 @@ figure_counter = 1;
 % load the info structure
 fprintf('loading the info structure...\n')
 if exist(output_file) == 2
-    output_vars = who('-file', sprintf('%s', output_file));
+    output_vars = who('-file', output_file);
     if ismember('BetaPain_info', output_vars)
         load(output_file, 'BetaPain_info')
     else
@@ -93,7 +93,7 @@ fprintf('section 1 finished.\n')
 % letswave
 
 %% 2) participant & session info
-fprintf('section 2:\n')
+fprintf('section 2: participant & session info\n')
 
 % encode info
 fprintf('encoding subject & session info...\n')
@@ -143,7 +143,7 @@ params.eventcode = {'TMS'};
 params.epoch = [-3.000 -0.005];
 params.downsample = 20;
 % ------------------------- 
-fprintf('section 3:\n')
+fprintf('section 3: load & pre-process EEG data\n')
 
 % cycle through sessions
 for a = 1:length(params.condition)
@@ -411,7 +411,7 @@ params.prefix = 'dc ds ep';
 params.suffix = {'no_mastoid' 'bandpass_broad' 'visual'};
 params.bandpass = [1, 45];
 % ------------------------- 
-fprintf('section 4:\n')
+fprintf('section 4: visual inspection\n')
 
 % update output 
 load(output_file, 'BetaPain_info')
@@ -488,7 +488,7 @@ params.interp_chans = 4;
 params.bandpass = [13 30];
 params.ICA_comp = 25;
 % -------------------------
-fprintf('section 5:\n')
+fprintf('section 5: compute ICA at beta frequency\n')
 
 % update output 
 load(output_file, 'BetaPain_info')
@@ -728,7 +728,7 @@ fprintf('section 5 finished.\nplease select components containing sensorimotor b
 % ----- section input -----
 params.condition = {'pain', 'control'};
 % ------------------------- 
-fprintf('section 6:\n')
+fprintf('section 6: encode ICA\n')
 
 % update output 
 load(output_file, 'BetaPain_info')
@@ -765,7 +765,7 @@ params.colours = [0.9216    0.1490    0.1490;
     1.0000    0.4784    0.8000;
     0.2588    0.7216    0.0275]; 
 % -------------------------   
-fprintf('section 7:\n')
+fprintf('section 7: compute PSD of ICA components\n')
 
 % ask for subject number
 if ~exist('subject_idx')
@@ -1010,7 +1010,7 @@ for c = 1:length(params.condition)
 end
 
 % set scaling across plots
-% sgtitle(sprintf('subject %d: power of beta oscillations of selected components', subject_idx))
+sgtitle(sprintf('subject %d: power of beta oscillations of selected components', subject_idx))
 for c = 1:length(params.condition)
     for t = 1:length(params.timepoint)
         subplot(4, 15, (c-1)*2*15 + [(t-1)*2 + 2, (t-1)*2 + 3, 15 + (t-1)*2 + 2, 15 + (t-1)*2 + 3])         
@@ -1034,6 +1034,161 @@ if strcmp(answer, 'YES')
 end
 clear params a c e f s t condition data data_trial header PSD psd_irasa psd_pwelch psd_avg cfg coi visual answer y_limits fig S P L 
 fprintf('section 7 finished.\n')
+
+%% 8) extract output measures
+% ----- section input -----
+params.condition = {'pain', 'control'};
+params.timepoint = {'baseline', 't1', 't2', 't3', 't4', 't5', 't6'};
+params.component = {'radial' 'tangential'};
+params.FOI = [13, 30];
+% -------------------------   
+fprintf('section 8: extract output measures\n')
+
+% load measures structure
+output_vars = who('-file', output_file);
+if ismember('BetaPain_measures', output_vars)
+    load(output_file, 'BetaPain_measures')
+else
+    BetaPain_measures = struct;
+    save(output_file, 'BetaPain_measures','-append')
+end
+
+% extract beta measures
+fprintf('extracting beta measures:\nsubject ')
+for subject_idx = 1:length(BetaPain_info)
+    fprintf('%d - ', subject_idx)
+
+    % identify subject
+    if subject_idx < 10
+        params.subject = sprintf('S0%d', subject_idx);
+    else
+        params.subject = sprintf('S%d', subject_idx);
+    end
+
+    % continue if data exist
+    if ismember(sprintf('BetaPain_data_%s', params.subject), params.output_vars)
+        % load the data
+        load(output_file, sprintf('BetaPain_data_%s', params.subject))
+        statement = sprintf('data = BetaPain_data_%s.beta;', params.subject);
+        eval(statement)
+
+        % encode info
+        BetaPain_measures(subject_idx).condition = params.condition;
+        BetaPain_measures(subject_idx).timepoint = params.timepoint;
+        BetaPain_measures(subject_idx).component = BetaPain_info(subject_idx).EEG.processing(8).params.selected;
+        BetaPain_measures(subject_idx).freqs = data(c).psd_pwelch(1).params.freq';
+
+        % select only relevant frequencies
+        params.freq_idx = BetaPain_measures(subject_idx).freqs > params.FOI(1) & BetaPain_measures(subject_idx).freqs < params.FOI(2);
+        BetaPain_measures(subject_idx).freqs = BetaPain_measures(subject_idx).freqs(params.freq_idx);
+        freq = BetaPain_measures(subject_idx).freqs;
+
+        % cycle through conditions
+        for c = 1:length(params.condition)
+            % select the components
+            for i = 1:length(params.component) 
+                statement = sprintf('params.selected(i) = BetaPain_measures(subject_idx).component(c).%s;', params.component{i});
+                eval(statement)
+            end
+
+            % cycle through timepoints and components 
+            for t = 1:length(params.timepoint)
+                for i = 1:length(params.component)                    
+                    % subset the data
+                    PSD = BetaPain_data_S01.beta(c).psd_avg(t).pwelch.mean(params.selected(i), params.freq_idx);
+
+                    % calculate peak beta frequency 
+                    BetaPain_measures(subject_idx).peak_beta_f(c, t, i) = freq(find(PSD == max(PSD)));
+
+                    % calculate centroid beta frequency
+                    if min(PSD) < 0
+                        BetaPain_measures(subject_idx).centroid_beta_f(c, t, i) = sum(freq .* (PSD - min(PSD) + 1)) / sum(PSD - min(PSD) + 1);
+                    else
+                        BetaPain_measures(subject_idx).centroid_beta_f(c, t, i) = sum(freq .* PSD) / sum(PSD);
+                    end
+
+                    % calculate peak beta amplitude 
+                    BetaPain_measures(subject_idx).peak_beta_a(c, t, i) = max(PSD);
+
+                    % calculate mean beta amplitude
+                    BetaPain_measures(subject_idx).mean_beta_a(c, t, i) = mean(PSD);
+                end
+            end
+        end
+    else
+    end
+end
+fprintf('done.\n')
+
+% extract average MEPs
+
+
+clear params output_vars subject_idx c t i data statement PSD freq
+fprintf('section 8 finished.\n')
+
+%% 9) export variables for statistics
+% ----- section input -----
+params.condition = {'pain', 'control'};
+params.timepoint = {'baseline', 't1', 't2', 't3', 't4', 't5', 't6'};
+% -------------------------   
+fprintf('section 9: export variables to Excel\n')
+
+% initialize the output table
+table_export = table;
+
+% write in extracted variables 
+row_counter = 1;
+fprintf('extracting variables: ')
+for subject_idx = 1:length(BetaPain_info)
+    fprintf('. ')
+
+    % check for existing datasets
+    if subject_idx < 10
+        params.subject = sprintf('S0%d', subject_idx);
+    else
+        params.subject = sprintf('S%d', subject_idx);
+    end
+    params.output_vars = who('-file', output_file);
+
+    % continue if data exist
+    if ismember(sprintf('BetaPain_data_%s', params.subject), params.output_vars)
+        % load the data
+        load(output_file, sprintf('BetaPain_data_%s', params.subject))    
+    
+        % cycle through conditions and timepoints
+        for c = 1:length(params.condition)  
+            for t = 1:length(params.timepoint)
+                % subject & session info
+                table_export.subject(row_counter) = subject_idx;
+                table_export.ID(row_counter) = {PAFPain_info(subject_idx).ID};
+                table_export.age(row_counter) = PAFPain_info(subject_idx).age;
+                table_export.male(row_counter) = PAFPain_info(subject_idx).male;
+                table_export.handedness(row_counter) = PAFPain_info(subject_idx).handedness;
+                table_export.area(row_counter) = PAFPain_info(subject_idx).area(c);
+                table_export.side(row_counter) = PAFPain_info(subject_idx).side(c);
+        
+                % averaege pain ratings
+                if strcmp(PAFPain_measures(subject_idx).pain.conditions{c}, params.conditions{c})
+                    table_export.pain(row_counter) = round(mean(PAFPain_measures(subject_idx).pain.ratings{c}), 2);
+                else
+                    error('ERROR: in subject %d, the pain rating conditions do not match!', subject_idx)
+                end
+
+                % update the counter
+                row_counter = row_counter + 1;
+            end
+        end
+    else
+    end
+end
+fprintf('done.\n')
+
+% save as an excel file
+fprintf('exporting ...\n')
+writetable(table_export, sprintf('%s\\%s_data_%s.xlsx', folder.output, study, date))
+
+clear params subject_idx row_counter c t 
+fprintf('section 9 finished.\n')
 
 %% functions
 function dataset = reload_dataset(data2load, conditions, fieldname)

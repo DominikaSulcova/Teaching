@@ -6,10 +6,8 @@
 % student:  Lea Matthies
 % ------------------------------------------------------------------------
 % project:  The peak latency of alpha oscillation have been previously
-%           linked to individual pain sensitivity. However, there are many
-%           sources of alpha activity in the brain and it is likely that
-%    
-%       only some of these are related to pain processing. This study 
+%           linked to individual pain sensitivity. However, there are many   
+%           only some of these are related to pain processing. This study 
 %           aims to investigate, whether sensorimotor alpha can predict 
 %           laser-evoked brain responses (LEPs) and/or the magnitude of 
 %           elicited pain. We hypothesize that a relationship between PAF 
@@ -982,7 +980,7 @@ save(output_file, 'PAFPain_data', 'PAFPain_measures', '-append')
 clear params subject_idx a c d dataset_blocks dataset data2load header data statement x toi_idx y_lims P T screen_size lgd fig 
 fprintf('section 8 finished.\n')
 
-%% 9) export to excel
+%% 9) export extracted variables to excel
 % ----- section input -----
 params.components = 8;
 params.ERP = {'LEP' 'SEP'};
