@@ -26,20 +26,44 @@
 % data:     - raw EEG recordings 
 %               --> 7 blocks, each split in two continuous EEG recordings
 %               --> for extraction of pre-stimulus 'resting state' EEG
+%               --> saved in MEGA files, 1 file per EEG block (14 in total)
 %           - MEPs
-%               --> already pre-processed, saved in 
-%           - pain ratings
-%               --> already pre-processed, saved in 
+%               --> already pre-processed
+%               --> saved in BetaPain_MEPs.txt 
 %          - subject information
+%               --> saved in BetaPain_subjects.xlsx
 % 
-% script:   - subject and session info encoded to the output structure
+% script:   - subject and session info encoded into the info structure
 %           - raw EEG data imported and pre-processed
 %               - channels linked to electrode coordinates 
 %               - signal segmented to 2.5s chunks pre-stimulus
 %               - downsampled to 1000Hz SR 
 %               - DC + linear detrend
 %               - datasets saved in letswave format 
-%           - 
+%           - new datasets created for visual inspection
+%               - broad bandpass filtered [1 45]Hz 
+%               - saved for letswave --> prefix 'visual'
+%           - bad channels interpolated if necessary
+%           - mastoids removed and data re-referenced to common average
+%           - data beta-band filtered [13 30]Hz
+%           - ICA matrix computed
+%               - separately for each condition (= session)
+%               - rectangular --> 25 components
+%           - timecourse for each component saved into the data structure
+%           - sensorimotor components encoded into the info structure
+%           - PSD of all components calculated
+%               - using pwelch fcn 
+%               - calculated for each trial separately 
+%               - averaged across trial per timepoint
+%               - saved into the data structure
+%           - PSD of selected components plotted and saved
+%           - output measures extracted
+%               - peak and centroid beta frequency of selected components
+%               - peak and mean beta amplitude of selected components
+%               - MEP amplitude
+%               - MEP latency
+%               --> saved into the measures structure
+%           - mean measures per condition and timepoint exported   
 %           
 % output:   - BetaPain_info     --> MATLAB structure gathering dataset
 %                                   information
@@ -1041,6 +1065,7 @@ params.condition = {'pain', 'control'};
 params.timepoint = {'baseline', 't1', 't2', 't3', 't4', 't5', 't6'};
 params.component = {'radial' 'tangential'};
 params.FOI = [13, 30];
+params.participants = [1:10,12:14,16:18,20,22:24];
 % -------------------------   
 fprintf('section 8: extract output measures\n')
 
@@ -1065,18 +1090,29 @@ for subject_idx = 1:length(BetaPain_info)
         params.subject = sprintf('S%d', subject_idx);
     end
 
+    % encode subject ID
+    BetaPain_measures(subject_idx).ID = params.subject;
+
     % continue if data exist
-    if ismember(sprintf('BetaPain_data_%s', params.subject), params.output_vars)
+    if ismember(sprintf('BetaPain_data_%s', params.subject), output_vars)
         % load the data
         load(output_file, sprintf('BetaPain_data_%s', params.subject))
         statement = sprintf('data = BetaPain_data_%s.beta;', params.subject);
         eval(statement)
 
+        % identify ICA info
+        params.fields = {BetaPain_info(subject_idx).EEG.processing.process};
+        for f = 1:length(params.fields)
+            if contains(params.fields{f}, 'ICA')
+                field = f;
+            end
+        end
+
         % encode info
         BetaPain_measures(subject_idx).condition = params.condition;
         BetaPain_measures(subject_idx).timepoint = params.timepoint;
-        BetaPain_measures(subject_idx).component = BetaPain_info(subject_idx).EEG.processing(8).params.selected;
-        BetaPain_measures(subject_idx).freqs = data(c).psd_pwelch(1).params.freq';
+        BetaPain_measures(subject_idx).component = BetaPain_info(subject_idx).EEG.processing(field).params.selected;
+        BetaPain_measures(subject_idx).freqs = data(1).psd_pwelch(1).params.freq';
 
         % select only relevant frequencies
         params.freq_idx = BetaPain_measures(subject_idx).freqs > params.FOI(1) & BetaPain_measures(subject_idx).freqs < params.FOI(2);
@@ -1087,31 +1123,42 @@ for subject_idx = 1:length(BetaPain_info)
         for c = 1:length(params.condition)
             % select the components
             for i = 1:length(params.component) 
-                statement = sprintf('params.selected(i) = BetaPain_measures(subject_idx).component(c).%s;', params.component{i});
+                % identify component
+                statement = sprintf('comp = BetaPain_measures(subject_idx).component(c).%s;', params.component{i});
                 eval(statement)
+
+                % encode 
+                if isempty(comp)
+                    params.selected(i) = 0;
+                else
+                    params.selected(i) = comp;
+                end
             end
 
             % cycle through timepoints and components 
             for t = 1:length(params.timepoint)
-                for i = 1:length(params.component)                    
-                    % subset the data
-                    PSD = BetaPain_data_S01.beta(c).psd_avg(t).pwelch.mean(params.selected(i), params.freq_idx);
-
-                    % calculate peak beta frequency 
-                    BetaPain_measures(subject_idx).peak_beta_f(c, t, i) = freq(find(PSD == max(PSD)));
-
-                    % calculate centroid beta frequency
-                    if min(PSD) < 0
-                        BetaPain_measures(subject_idx).centroid_beta_f(c, t, i) = sum(freq .* (PSD - min(PSD) + 1)) / sum(PSD - min(PSD) + 1);
-                    else
-                        BetaPain_measures(subject_idx).centroid_beta_f(c, t, i) = sum(freq .* PSD) / sum(PSD);
+                for i = 1:length(params.component) 
+                    % if a component was selected
+                    if params.selected(i) ~= 0
+                        % subset the data
+                        PSD = data(c).psd_avg(t).pwelch.mean(params.selected(i), params.freq_idx);
+    
+                        % calculate peak beta frequency 
+                        BetaPain_measures(subject_idx).peak_beta_f(c, t, i) = freq(find(PSD == max(PSD)));
+    
+                        % calculate centroid beta frequency
+                        if min(PSD) < 0
+                            BetaPain_measures(subject_idx).centroid_beta_f(c, t, i) = sum(freq .* (PSD - min(PSD) + 1)) / sum(PSD - min(PSD) + 1);
+                        else
+                            BetaPain_measures(subject_idx).centroid_beta_f(c, t, i) = sum(freq .* PSD) / sum(PSD);
+                        end
+    
+                        % calculate peak beta amplitude 
+                        BetaPain_measures(subject_idx).peak_beta_a(c, t, i) = max(PSD);
+    
+                        % calculate mean beta amplitude
+                        BetaPain_measures(subject_idx).mean_beta_a(c, t, i) = mean(PSD);                       
                     end
-
-                    % calculate peak beta amplitude 
-                    BetaPain_measures(subject_idx).peak_beta_a(c, t, i) = max(PSD);
-
-                    % calculate mean beta amplitude
-                    BetaPain_measures(subject_idx).mean_beta_a(c, t, i) = mean(PSD);
                 end
             end
         end
@@ -1120,10 +1167,94 @@ for subject_idx = 1:length(BetaPain_info)
 end
 fprintf('done.\n')
 
-% extract average MEPs
+% load and adjust MEP results
+fprintf('loading MEP results ...\n')
+MEP = readtable('BetaPain_MEPs.txt');
+for a = 1:height(MEP)
+    % add subject ID
+    subject_idx = find(MEP.subject(a) == params.participants);
+    if subject_idx < 10
+        MEP.ID{a} = sprintf('S0%d', subject_idx);
+    else
+        MEP.ID{a} = sprintf('S%d', subject_idx);
+    end
 
+    % correct session
+    if strcmp(MEP.session{a}, 'caps')
+        MEP.session{a} = params.condition{1};
+    elseif strcmp(MEP.session{a}, 'ctrl')
+        MEP.session{a} = params.condition{2};
+    end
+end
 
-clear params output_vars subject_idx c t i data statement PSD freq
+% encode MEPs to output structures
+fprintf('extracting MEP measures:\nsubject ')
+for subject_idx = 2:length(BetaPain_info)
+    fprintf('%d - ', subject_idx)
+
+    % identify subject
+    if subject_idx < 10
+        params.subject = sprintf('S0%d', subject_idx);
+    else
+        params.subject = sprintf('S%d', subject_idx);
+    end
+
+    % continue if data exist
+    if ismember(sprintf('BetaPain_data_%s', params.subject), output_vars)
+        % load the data
+        load(output_file, sprintf('BetaPain_data_%s', params.subject))
+        statement = sprintf('data = BetaPain_data_%s;', params.subject);
+        eval(statement)
+
+        % prepare output 
+        for c = 1:length(params.condition)
+            data.MEP(c).condition = params.condition{c};
+            for t = 1:length(params.timepoint)
+                data.MEP(c).single_trial(t).timepoint = params.timepoint{t};
+                data.MEP(c).single_trial(t).amplitude = [];
+                data.MEP(c).single_trial(t).latency = [];
+            end
+        end
+
+        % extract single trial measures
+        for a = 1:height(MEP)
+            if strcmp(MEP.ID{a}, params.subject)
+                for c = 1:length(params.condition)
+                    if strcmp(MEP.session{a}, params.condition{c})
+                        for t = 1:length(params.timepoint)
+                            if strcmp(MEP.timepoint{a}, params.timepoint{t})
+                                data.MEP(c).single_trial(t).amplitude(end+1) = MEP.amplitude(a);
+                                data.MEP(c).single_trial(t).latency(end+1) = MEP.latency(a);
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        % calculate average and encode to output structures
+        for c = 1:length(params.condition)
+            for t = 1:length(params.timepoint)
+                data.MEP(c).average(t).amplitude = mean(data.MEP(c).single_trial(t).amplitude);
+                data.MEP(c).average(t).latency =  mean(data.MEP(c).single_trial(t).latency);
+                BetaPain_measures(subject_idx).MEP_amplitude(c, t) = data.MEP(c).average(t).amplitude;
+                BetaPain_measures(subject_idx).MEP_latency(c, t) = data.MEP(c).average(t).latency;
+            end
+        end
+
+        % save data structure
+        statement = sprintf('BetaPain_data_%s = data;', params.subject);
+        eval(statement)
+        save(output_file, sprintf('BetaPain_data_%s', params.subject), '-append')
+    else
+    end
+end
+fprintf('done.\n')
+
+% save and continue
+fprintf('saving ...\n')
+save(output_file, 'BetaPain_measures', 'BetaPain_info', '-append')
+clear params output_vars subject_idx a c f t i data field statement PSD freq comp MEP 
 fprintf('section 8 finished.\n')
 
 %% 9) export variables for statistics
@@ -1132,6 +1263,9 @@ params.condition = {'pain', 'control'};
 params.timepoint = {'baseline', 't1', 't2', 't3', 't4', 't5', 't6'};
 % -------------------------   
 fprintf('section 9: export variables to Excel\n')
+
+% load info and measures
+load(output_file, 'BetaPain_measures', 'BetaPain_info')
 
 % initialize the output table
 table_export = table;
@@ -1152,27 +1286,43 @@ for subject_idx = 1:length(BetaPain_info)
 
     % continue if data exist
     if ismember(sprintf('BetaPain_data_%s', params.subject), params.output_vars)
-        % load the data
-        load(output_file, sprintf('BetaPain_data_%s', params.subject))    
-    
         % cycle through conditions and timepoints
         for c = 1:length(params.condition)  
             for t = 1:length(params.timepoint)
                 % subject & session info
                 table_export.subject(row_counter) = subject_idx;
-                table_export.ID(row_counter) = {PAFPain_info(subject_idx).ID};
-                table_export.age(row_counter) = PAFPain_info(subject_idx).age;
-                table_export.male(row_counter) = PAFPain_info(subject_idx).male;
-                table_export.handedness(row_counter) = PAFPain_info(subject_idx).handedness;
-                table_export.area(row_counter) = PAFPain_info(subject_idx).area(c);
-                table_export.side(row_counter) = PAFPain_info(subject_idx).side(c);
-        
-                % averaege pain ratings
-                if strcmp(PAFPain_measures(subject_idx).pain.conditions{c}, params.conditions{c})
-                    table_export.pain(row_counter) = round(mean(PAFPain_measures(subject_idx).pain.ratings{c}), 2);
+                table_export.ID(row_counter) = {params.subject};
+                table_export.age(row_counter) = BetaPain_info(subject_idx).age;
+                if BetaPain_info(subject_idx).male
+                    table_export.sex(row_counter) = {'male'};
                 else
-                    error('ERROR: in subject %d, the pain rating conditions do not match!', subject_idx)
+                    table_export.sex(row_counter) = {'female'};
                 end
+                
+                % condition & timepoint
+                table_export.condition(row_counter) = params.condition(c);
+                table_export.timepoint(row_counter) = params.timepoint(t);
+
+                % stimulation
+                table_export.rMT(row_counter) = round(BetaPain_info(subject_idx).stimulation(c).rMT, 1);
+                table_export.intensity(row_counter) = round(BetaPain_info(subject_idx).stimulation(c).intensity, 1);
+                if strcmp(BetaPain_info(subject_idx).stimulation(c).hemisphere, 'right')
+                    table_export.hemisphere(row_counter) = {'dominant'};
+                elseif strcmp(BetaPain_info(subject_idx).stimulation(c).hemisphere, 'left')
+                    table_export.hemisphere(row_counter) = {'nondominant'};
+                end
+
+                % MEPs
+                table_export.MEP_amplitude(row_counter) = BetaPain_measures(subject_idx).MEP_amplitude(c, t);
+                table_export.MEP_latency(row_counter) = BetaPain_measures(subject_idx).MEP_latency(c, t);
+
+                % beta measures
+                table_export.beta_frequency_radial(row_counter) = BetaPain_measures(subject_idx).centroid_beta_f(c, t, 1);
+                table_export.beta_peak_radial(row_counter) = BetaPain_measures(subject_idx).peak_beta_a(c, t, 1);
+                table_export.beta_mean_radial(row_counter) = BetaPain_measures(subject_idx).mean_beta_a(c, t, 1);
+                table_export.beta_frequency_tangential(row_counter) = BetaPain_measures(subject_idx).centroid_beta_f(c, t, 2);
+                table_export.beta_peak_tangential(row_counter) = BetaPain_measures(subject_idx).peak_beta_a(c, t, 2);
+                table_export.beta_mean_tangential(row_counter) = BetaPain_measures(subject_idx).mean_beta_a(c, t, 2);
 
                 % update the counter
                 row_counter = row_counter + 1;
@@ -1189,6 +1339,12 @@ writetable(table_export, sprintf('%s\\%s_data_%s.xlsx', folder.output, study, da
 
 clear params subject_idx row_counter c t 
 fprintf('section 9 finished.\n')
+
+%% 10) plot average group values
+% ----- section input -----
+% -------------------------
+fprintf('section 10: plot average group values\n')
+fprintf('section 10 finished.\n')
 
 %% functions
 function dataset = reload_dataset(data2load, conditions, fieldname)
