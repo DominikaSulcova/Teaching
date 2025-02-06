@@ -89,7 +89,7 @@ output_file = sprintf('%s\\%s_output.mat', folder.output, study);
 figure_counter = 1;
 
 % load the info structure
-fprintf('loading the info structure...\n')
+fprintf('loading the info structure... ')
 if exist(output_file) == 2
     output_vars = who('-file', output_file);
     if ismember('BetaPain_info', output_vars)
@@ -102,6 +102,7 @@ else
     BetaPain_info = struct;
     save(output_file, 'BetaPain_info')
 end
+fprintf('done.\n')
 
 % current participant
 prompt = {'subject number:'};
@@ -1189,7 +1190,7 @@ end
 
 % encode MEPs to output structures
 fprintf('extracting MEP measures:\nsubject ')
-for subject_idx = 2:length(BetaPain_info)
+for subject_idx = 1:length(BetaPain_info)
     fprintf('%d - ', subject_idx)
 
     % identify subject
